@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sound Frame — Investor Proforma</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #f7f5f1; font-family: 'Inter', sans-serif; }
+    button { font-family: 'Inter', sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // ─── Shared Constants ────────────────────────────────────────────────────────
+    const AMOUNT       = 75000;
+    const LOAN_TERM    = 36;
+    const GRACE        = 12;
+    const RATE         = 0.08;
+    const DTC_PRICE    = 3500;
+    const WHOLESALE    = 2100;
+    const COGS         = 1400;
+    const BLEND_REV    = DTC_PRICE * 0.5 + WHOLESALE * 0.5;
+    const BLEND_GP     = (DTC_PRICE - COGS) * 0.5 + (WHOLESALE - COGS) * 0.5;
+    const OP_EXP_RATE  = 0.18;
+
+    // ─── Loan Calcs ──────────────────────────────────────────────────────────────
+    const accruedBal  = AMOUNT * Math.pow(1 + RATE / 12, GRACE);
+    const repayMonths = LOAN_TERM - GRACE;
+    const monthlyPmt  = (() => {
+      const r = RATE / 12;
+      return (accruedBal * r) / (1 - Math.pow(1 + r, -repayMonths));
+    })();
+    const graceInt = accruedBal - AMOUNT;
+    const totalInt = graceInt + (monthlyPmt * repayMonths - accruedBal);
+
+    // ─── Equity Options ──────────────────────────────────────────────────────────
+    const EQUITY_OPTIONS = [
+      { pct: 0.10, label: "10%", preMoney: 675000 },
+      { pct: 0.15, label: "15%", preMoney: 425000 },
+      { pct: 0.20, label: "20%", preMoney: 300000 },
+      { pct: 0.25, label: "25%", preMoney: 225000 },
+    ];
+    const EXIT_MULTIPLES = [2, 4, 6, 8];
+
+    // ─── Scenarios ───────────────────────────────────────────────────────────────
+    const SCENARIOS = {
+      conservative: { label: "Conservative", sub: "Slower market penetration", accent: "#92400e", yr1: 59,  yr2: 74,  yr3: 89  },
+      base:         { label: "Base",         sub: "Steady retail + DTC build",  accent: "#1e3a5f", yr1: 130, yr2: 176, yr3: 229 },
+      optimistic:   { label: "Optimistic",   sub: "Strong trade + DTC demand",  accent: "#4a1d6b", yr1: 235, yr2: 329, yr3: 444 },
+    };
+
+    const FUNDS = [
+      { item: "CAD Engineering & Design", pct: 27, amount: 20000, note: '3D modeling, tolerancing, spec sheets — 55", 65", 75" variants' },
+      { item: "Cabinet Maker Prototypes", pct: 33, amount: 25000, note: "Production-quality samples across all three frame sizes" },
+      { item: "IP / Patent Filing",       pct: 20, amount: 15000, note: "Provisional + utility patent application (estimated attorney fees)" },
+      { item: "Website & Trade Marketing",pct: 11, amount:  8000, note: "E-commerce build-out, trade collateral, product photography" },
+      { item: "Audio Components / R&D",   pct:  5, amount:  4000, note: "Speaker driver sourcing and acoustic refinement" },
+      { item: "Contingency Reserve",      pct:  4, amount:  3000, note: "Cost overruns, supplier revisions, unforeseen expenses" },
+    ];
+
+    const fmt$ = n => "$" + Math.round(n).toLocaleString();
+    const fmtX = n => n.toFixed(1) + "x";
+
+    // ─── Palette ─────────────────────────────────────────────────────────────────
+    const C = {
+      bg: "#f7f5f1", bgCard: "#ffffff", bgSubtle: "#f2efe9",
+      border: "#e5dfd5", borderMid: "#d5cec2",
+      navy: "#1a2b3c", gold: "#b8943a", goldLight: "#fdf6e3", goldBorder: "#e8d08a",
+      positive: "#2d5a3d", positiveBg: "#f0f7f3", positiveBdr: "#a8d4b8",
+      warning: "#7c3500", warningBg: "#fef6ec", warningBdr: "#f5c87a",
+      muted: "#8a8070", body: "#2e2a24", sub: "#5a5248",
+    };
+
+    // ─── Shared Components ───────────────────────────────────────────────────────
+    function ScrollTable({ children, style = {} }) {
+      const [showHint, setShowHint] = useState(true);
+      const ref = useRef(null);
+      useEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        const check = () => setShowHint(el.scrollLeft < 10 && el.scrollWidth > el.clientWidth + 4);
+        check();
+        el.addEventListener("scroll", check);
+        window.addEventListener("resize", check);
+        return () => { el.removeEventListener("scroll", check); window.removeEventListener("resize", check); };
+      }, []);
+      return (
+        <div style={{ position: "relative" }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6, marginBottom:8, opacity: showHint ? 1 : 0, transition:"opacity .3s", pointerEvents:"none" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.muted} strokeWidth="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+            <span style={{ fontSize:11, color:C.muted, letterSpacing:1.5, textTransform:"uppercase", fontWeight:600 }}>Slide to scroll</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.muted} strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          </div>
+          <div ref={ref} style={{ overflowX:"auto", borderRadius:12, border:`1px solid ${C.border}`, background:"#fff", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", ...style }}>
+            {children}
+          </div>
+          <div style={{ position:"absolute", bottom:0, right:0, width:48, height:"calc(100% - 30px)", background:"linear-gradient(to right, transparent, rgba(255,255,255,0.95))", borderRadius:"0 12px 12px 0", pointerEvents:"none", opacity: showHint ? 1 : 0, transition:"opacity .3s" }} />
+        </div>
+      );
+    }
+
+    function Eyebrow({ children }) {
+      return <div style={{ fontSize:10, letterSpacing:4, textTransform:"uppercase", color:C.gold, marginBottom:12, fontWeight:600 }}>{children}</div>;
+    }
+    function H2({ children }) {
+      return <div style={{ fontFamily:"'Playfair Display',serif", fontSize:31, color:C.navy, marginBottom:28, fontWeight:600, lineHeight:1.2 }}>{children}</div>;
+    }
+    function Card({ children, style }) {
+      return <div style={{ background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:12, padding:"22px 26px", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", ...style }}>{children}</div>;
+    }
+    function Section({ children }) {
+      return <div style={{ maxWidth:900, margin:"0 auto", padding:"48px 24px", borderBottom:`1px solid ${C.border}` }}>{children}</div>;
+    }
+    function Notice({ children, type = "warn" }) {
+      const s = { warn:{ bg:C.warningBg, border:C.warningBdr, color:C.warning }, gold:{ bg:C.goldLight, border:C.goldBorder, color:"#5a420a" }, success:{ bg:C.positiveBg, border:C.positiveBdr, color:C.positive } }[type];
+      return <div style={{ padding:"14px 18px", background:s.bg, border:`1px solid ${s.border}`, borderRadius:10, fontSize:13, color:s.color, lineHeight:1.75, marginTop:14 }}>{children}</div>;
+    }
+    function ScenarioTabs({ value, onChange }) {
+      return (
+        <div style={{ display:"flex", gap:10, marginBottom:20, flexWrap:"wrap" }}>
+          {Object.entries(SCENARIOS).map(([key, s]) => (
+            <button key={key} onClick={() => onChange(key)}
+              style={{ border:`1.5px solid ${value===key ? s.accent : C.border}`, background:value===key ? C.bgSubtle : C.bgCard, color:value===key ? s.accent : C.muted, padding:"11px 18px", borderRadius:8, cursor:"pointer", fontSize:13, fontWeight:500, textAlign:"left", transition:"all .15s" }}>
+              <div style={{ fontWeight:600 }}>{s.label}</div>
+              <div style={{ fontSize:11, opacity:0.7, marginTop:2 }}>{s.sub}</div>
+            </button>
+          ))}
+        </div>
+      );
+    }
+    function PillBtn({ active, onClick, children }) {
+      return <button onClick={onClick} style={{ border:`1.5px solid ${active ? C.navy : C.border}`, background:active ? C.navy : C.bgCard, color:active ? "#fff" : C.muted, padding:"9px 18px", borderRadius:8, cursor:"pointer", fontSize:13, fontWeight:600, transition:"all .15s" }}>{children}</button>;
+    }
+    function MetricGrid({ items }) {
+      return (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(148px, 1fr))", gap:12 }}>
+          {items.map(m => (
+            <Card key={m.lbl} style={m.highlight ? { background: m.highlight==="gold" ? C.goldLight : C.positiveBg, border:`1px solid ${m.highlight==="gold" ? C.goldBorder : C.positiveBdr}` } : {}}>
+              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24, color:m.highlight==="gold" ? C.gold : m.highlight==="pos" ? C.positive : C.navy, fontWeight:700 }}>{m.val}</div>
+              <div style={{ fontSize:10, letterSpacing:2, textTransform:"uppercase", color:C.muted, marginTop:6 }}>{m.lbl}</div>
+            </Card>
+          ))}
+        </div>
+      );
+    }
+    function FundsTable() {
+      const TH = { textAlign:"left", padding:"10px 14px", fontSize:10, letterSpacing:2, textTransform:"uppercase", color:C.muted, borderBottom:`2px solid ${C.bgSubtle}`, fontWeight:600, background:"#faf8f4" };
+      return (
+        <>
+          <ScrollTable>
+            <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+              <thead><tr>{["Line Item","Amount","Allocation","Purpose"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+              <tbody>
+                {FUNDS.map((f,i) => (
+                  <tr key={i}>
+                    <td style={{ padding:"13px 14px", borderBottom:`1px solid ${C.bgSubtle}`, color:C.body, fontWeight:600 }}>{f.item}</td>
+                    <td style={{ padding:"13px 14px", borderBottom:`1px solid ${C.bgSubtle}` }}><span style={{ color:C.navy, fontWeight:600 }}>{fmt$(f.amount)}</span></td>
+                    <td style={{ padding:"13px 14px", borderBottom:`1px solid ${C.bgSubtle}`, minWidth:120 }}>
+                      <span style={{ color:C.muted, fontSize:12 }}>{f.pct}%</span>
+                      <div style={{ background:C.bgSubtle, borderRadius:4, height:5, marginTop:7 }}><div style={{ width:f.pct+"%", background:C.navy, borderRadius:4, height:5 }} /></div>
+                    </td>
+                    <td style={{ padding:"13px 14px", borderBottom:`1px solid ${C.bgSubtle}`, color:C.muted, fontSize:12, lineHeight:1.6 }}>{f.note}</td>
+                  </tr>
+                ))}
+                <tr style={{ background:C.bgSubtle }}>
+                  <td style={{ padding:"13px 14px", color:C.body, fontWeight:700 }}>Total</td>
+                  <td style={{ padding:"13px 14px" }}><span style={{ color:C.navy, fontWeight:700, fontSize:15 }}>{fmt$(AMOUNT)}</span></td>
+                  <td style={{ padding:"13px 14px" }}><span style={{ color:C.navy, fontWeight:600 }}>100%</span></td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          </ScrollTable>
+          <Notice type="warn"><strong>⚠ Note:</strong> Cabinet maker and IP costs are estimates. Utility patent prosecution extends 2–3 years beyond this raise and will require additional budget not captured here.</Notice>
+        </>
+      );
+    }
+    function AssumptionsGrid() {
+      const assumptions = [
+        { lbl:'Retail Price (65" anchor)', val:"$3,500",  note:"Primary SKU — varies by TV size" },
+        { lbl:"Wholesale / Trade Price",   val:"$2,100",  note:"60% of retail — standard dealer margin" },
+        { lbl:"Est. COGS / Unit",          val:"$1,400",  note:"~40% of retail · pending cabinet maker quotes" },
+        { lbl:"Channel Mix",               val:"50 / 50", note:"DTC (website) vs. retail trade" },
+        { lbl:"Blended Revenue / Unit",    val:"$2,800",  note:"Weighted avg across both channels" },
+        { lbl:"Blended GP / Unit",         val:"$1,400",  note:"Before operating expenses" },
+      ];
+      return (
+        <>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(210px, 1fr))", gap:12 }}>
+            {assumptions.map(a => (
+              <Card key={a.lbl}>
+                <div style={{ fontSize:11, color:C.muted, marginBottom:8, fontWeight:500 }}>{a.lbl}</div>
+                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24, color:C.navy, fontWeight:700 }}>{a.val}</div>
+                <div style={{ color:C.muted, fontSize:12, lineHeight:1.65, marginTop:8 }}>{a.note}</div>
+              </Card>
+            ))}
+          </div>
+          <Notice type="warn"><strong>Critical Assumption:</strong> COGS of $1,400/unit (40% of retail) is unvalidated. If actual COGS lands at 50–55% of retail, gross profit per unit drops to $875–$1,050 — narrowing margin materially. Cabinet maker quotes required before committing to a production run.</Notice>
+        </>
+      );
+    }
+    function RiskList({ items }) {
+      return <>{items.map(r => (
+        <div key={r.title} style={{ padding:"15px 20px", borderLeft:`3px solid ${C.borderMid}`, background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:"0 10px 10px 0", marginBottom:10, fontSize:13, color:C.sub, lineHeight:1.7 }}>
+          <div style={{ color:C.body, fontWeight:600, marginBottom:4 }}>{r.title}</div>
+          {r.body}
+        </div>
+      ))}</>;
+    }
+
+    // ─── LOAN VIEW ───────────────────────────────────────────────────────────────
+    function LoanView() {
+      const [scenario, setScenario] = useState("base");
+      const sc = SCENARIOS[scenario];
+      const yr1U = sc.yr1, yr2U = sc.yr2, yr3U = sc.yr3;
+      const moUnits = [0.5,0.7,0.85,0.95,1,1.05,1.1,1.15,1.2,1.25,1.3,1.35].map(f => Math.round(yr1U/12*f));
+      const cumGP = moUnits.reduce((acc,u,i) => { acc.push((acc[i-1]||0)+u*BLEND_GP); return acc; }, []);
+      const beMonth = cumGP.findIndex(g => g >= accruedBal);
+      const unitsNeeded = Math.ceil(monthlyPmt / BLEND_GP);
+      const TH = { textAlign:"left", padding:"10px 14px", fontSize:10, letterSpacing:2, textTransform:"uppercase", color:C.muted, borderBottom:`2px solid ${C.bgSubtle}`, fontWeight:600, background:"#faf8f4" };
+      const yearRows = [
+        { label:"Year 1 — Grace Period",          units:yr1U, note:"No payments due",               rowBg:C.goldLight  },
+        { label:"Year 2 — Repayment begins",      units:yr2U, note:`${fmt$(monthlyPmt)}/mo from Mo. 13`, rowBg:C.positiveBg },
+        { label:"Year 3 — Repayment continues *", units:yr3U, note:"Loan retired by Month 36",      rowBg:C.positiveBg },
+      ];
+      return (
+        <>
+          <div style={{ background:C.goldLight, borderBottom:`2px solid ${C.goldBorder}`, padding:"24px" }}>
+            <div style={{ maxWidth:900, margin:"0 auto", display:"flex", alignItems:"flex-start", gap:20, flexWrap:"wrap" }}>
+              <div style={{ background:C.gold, borderRadius:10, padding:"14px 18px", textAlign:"center", minWidth:110, flexShrink:0 }}>
+                <div style={{ fontFamily:"'Playfair Display',serif", color:"#fff", fontSize:26, fontWeight:700 }}>Yr 1</div>
+                <div style={{ fontSize:10, color:"rgba(255,255,255,0.85)", letterSpacing:2, textTransform:"uppercase", marginTop:4, fontWeight:600 }}>Grace Period</div>
+              </div>
+              <div>
+                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:19, color:"#3d2c06", fontWeight:700, marginBottom:8 }}>No payments required in Year 1 — Months 1 through 12</div>
+                <p style={{ fontSize:13, color:"#5a420a", lineHeight:1.8 }}>The investor receives <strong>zero payments during the first 12 months</strong>. This grace period allows Sound Frame to deploy capital fully toward product development without debt service pressure. Interest accrues on the {fmt$(AMOUNT)} principal during this period, bringing the balance to <strong>{fmt$(accruedBal)}</strong>. Repayment of <strong>{fmt$(monthlyPmt)}/month</strong> begins Month 13 and continues for 24 months.</p>
+              </div>
+            </div>
+          </div>
+
+          <Section>
+            <Eyebrow>Executive Summary</Eyebrow>
+            <H2>The Opportunity</H2>
+            <Card>
+              <p style={{ fontSize:14, lineHeight:1.95, color:C.sub }}>Sound Frame is a premium, TV-integrated speaker system built into a custom decorative frame. A working prototype has been completed. This <strong style={{color:C.navy}}>{fmt$(AMOUNT)} loan</strong> funds the bridge to production: CAD engineering, cabinet maker samples, and IP protection. <strong style={{color:C.navy}}>No payments are required in Year 1</strong>, allowing full focus on development and market entry. Repayment begins Month 13 across 24 months at 8% annual interest.</p>
+              <div style={{ display:"flex", gap:10, marginTop:16, flexWrap:"wrap" }}>
+                <div style={{ background:C.goldLight, border:`1px solid ${C.goldBorder}`, borderRadius:8, padding:"10px 16px", fontSize:13, color:"#5a420a" }}><strong>Months 1–12:</strong> Grace period — $0 payments, capital deployed</div>
+                <div style={{ background:C.positiveBg, border:`1px solid ${C.positiveBdr}`, borderRadius:8, padding:"10px 16px", fontSize:13, color:C.positive }}><strong>Months 13–36:</strong> {fmt$(monthlyPmt)}/mo fixed repayment</div>
+              </div>
+            </Card>
+          </Section>
+
+          <Section>
+            <Eyebrow>Loan Structure</Eyebrow>
+            <H2>Terms &amp; Repayment Schedule</H2>
+            <div style={{ display:"flex", marginBottom:28, borderRadius:12, overflow:"hidden", border:`1px solid ${C.border}` }}>
+              <div style={{ flex:"0 0 33%", background:C.goldLight, padding:"20px 22px", borderRight:`1px solid ${C.goldBorder}` }}>
+                <div style={{ fontSize:10, letterSpacing:2, textTransform:"uppercase", color:C.gold, fontWeight:600, marginBottom:8 }}>Grace Period</div>
+                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, color:"#92400e", fontWeight:700, marginBottom:6 }}>Months 1–12</div>
+                <div style={{ fontSize:13, color:"#78350f", lineHeight:1.7 }}><strong>$0 payments due.</strong><br/>Interest accrues → balance grows to {fmt$(accruedBal)} by Month 12.</div>
+              </div>
+              <div style={{ flex:1, background:C.positiveBg, padding:"20px 22px" }}>
+                <div style={{ fontSize:10, letterSpacing:2, textTransform:"uppercase", color:C.positive, fontWeight:600, marginBottom:8 }}>Repayment Period</div>
+                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, color:C.positive, fontWeight:700, marginBottom:6 }}>Months 13–36</div>
+                <div style={{ fontSize:13, color:C.positive, lineHeight:1.7 }}><strong>{fmt$(monthlyPmt)}/month</strong> for 24 months on accrued balance of {fmt$(accruedBal)}. Fully retired by Month 36.</div>
+              </div>
+            </div>
+            <MetricGrid items={[
+              { lbl:"Original Loan",          val:fmt$(AMOUNT) },
+              { lbl:"Year 1 Payments",        val:"$0",            highlight:"gold" },
+              { lbl:"Interest During Grace",  val:fmt$(graceInt) },
+              { lbl:"Balance at Month 13",    val:fmt$(accruedBal) },
+              { lbl:"Repayment Period",       val:"24 Months" },
+              { lbl:"Monthly Payment (Yr 2+)",val:fmt$(monthlyPmt) },
+              { lbl:"Interest Rate",          val:"8.0% p.a." },
+              { lbl:"Total Interest",         val:fmt$(totalInt) },
+              { lbl:"Total Repaid",           val:fmt$(monthlyPmt*repayMonths) },
+            ]} />
+            <div style={{ color:C.muted, fontSize:12, lineHeight:1.65, marginTop:12 }}>8% p.a. interest compounds monthly during grace. No payments collected Months 1–12. First payment of {fmt$(monthlyPmt)} due Month 13. Rate subject to negotiation.</div>
+          </Section>
+
+          <Section><Eyebrow>Section A</Eyebrow><H2>Use of Funds — {fmt$(AMOUNT)}</H2><FundsTable /></Section>
+          <Section><Eyebrow>Section B</Eyebrow><H2>Financial Assumptions</H2><AssumptionsGrid /></Section>
+
+          <Section>
+            <Eyebrow>Section C</Eyebrow>
+            <H2>Revenue Projections — 3 Years</H2>
+            <ScenarioTabs value={scenario} onChange={setScenario} />
+            <ScrollTable>
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                <thead><tr>{["Period","Units","Gross Revenue","COGS","Gross Profit","GP Margin","Loan Status"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {yearRows.map(r => {
+                    const rev=r.units*BLEND_REV, cogs=r.units*COGS, gp=r.units*BLEND_GP;
+                    return (
+                      <tr key={r.label} style={{ background:r.rowBg }}>
+                        <td style={{ padding:"13px 14px", color:C.body, fontWeight:600, borderBottom:`1px solid ${C.bgSubtle}` }}>{r.label}</td>
+                        <td style={{ padding:"13px 14px", borderBottom:`1px solid ${C.bgSubtle}`, fontVariantNumeric:"tabular-nums", fontWeight:500 }}>{r.units}</td>
+                        <td style={{ padding:"13px 14px", borderBottom:`1px solid ${C.bgSubtle}` }}><span style={{color:C.navy,fontWeight:600}}>{fmt$(rev)}</span></td>
+                        <td style={{ padding:"13px 14px", borderBottom:`1px solid ${C.bgSubtle}`, color:C.muted }}>{fmt$(cogs)}</td>
+                        <td style={{ padding:"13px 14px", borderBottom:`1px solid ${C.bgSubtle}` }}><span style={{color:C.positive,fontWeight:600}}>{fmt$(gp)}</span></td>
+                        <td style={{ padding:"13px 14px", borderBottom:`1px solid ${C.bgSubtle}`, color:C.sub }}>{Math.round(gp/rev*100)}%</td>
+                        <td style={{ padding:"13px 14px", borderBottom:`1px solid ${C.bgSubtle}`, fontSize:12, color:r.rowBg===C.goldLight?"#92400e":C.positive, fontWeight:500 }}>{r.note}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </ScrollTable>
+            <div style={{ color:C.muted, fontSize:12, lineHeight:1.65, marginTop:12 }}>* Year 3 applies {sc.label.toLowerCase()} growth assumptions. Estimates only.</div>
+          </Section>
+
+          <Section>
+            <Eyebrow>Section D</Eyebrow>
+            <H2>Repayment Feasibility — Year 2 Monthly Detail</H2>
+            <Notice type="gold">
+              <strong>Year 1 Recap: No payments made.</strong> Interest accrued on the {fmt$(AMOUNT)} principal, bringing the outstanding balance to <strong>{fmt$(accruedBal)}</strong> at the start of Month 13. Monthly payments of <strong>{fmt$(monthlyPmt)}</strong> now begin over {repayMonths} months. Approximately <strong>{unitsNeeded} units/month</strong> of blended gross profit required to cover each payment.{" "}
+              {beMonth >= 0 ? <>Under the <strong>{sc.label.toLowerCase()}</strong> scenario, cumulative Year 2 gross profit surpasses the accrued balance by <strong>Month {beMonth + 1}</strong>.</> : <>Under this scenario, Year 2 gross profit alone does not fully cover the accrued balance — <strong>repayment relies on Year 3 revenue.</strong></>}
+            </Notice>
+            <ScrollTable style={{ marginTop:16 }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                <thead><tr>{["Month","Units","Gross Profit","Loan Payment","Surplus / Gap","Cumulative GP"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {moUnits.map((units,i) => {
+                    const gp=units*BLEND_GP, surplus=gp-monthlyPmt, cum=cumGP[i];
+                    return (
+                      <tr key={i} style={{ background:cum>=accruedBal?C.positiveBg:"transparent" }}>
+                        <td style={{padding:"12px 14px",borderBottom:`1px solid ${C.bgSubtle}`,color:C.muted,fontWeight:500}}>Yr 2 · Mo {i+1}</td>
+                        <td style={{padding:"12px 14px",borderBottom:`1px solid ${C.bgSubtle}`,fontVariantNumeric:"tabular-nums",fontWeight:500}}>{units}</td>
+                        <td style={{padding:"12px 14px",borderBottom:`1px solid ${C.bgSubtle}`}}><span style={{color:C.positive,fontWeight:600}}>{fmt$(gp)}</span></td>
+                        <td style={{padding:"12px 14px",borderBottom:`1px solid ${C.bgSubtle}`}}><span style={{color:C.navy,fontWeight:600}}>{fmt$(monthlyPmt)}</span></td>
+                        <td style={{padding:"12px 14px",borderBottom:`1px solid ${C.bgSubtle}`}}><span style={{color:surplus>=0?C.positive:"#991b1b",fontWeight:600}}>{surplus>=0?"+":""}{fmt$(surplus)}</span></td>
+                        <td style={{padding:"12px 14px",borderBottom:`1px solid ${C.bgSubtle}`}}><span style={{color:cum>=accruedBal?C.positive:C.sub,fontWeight:cum>=accruedBal?600:400}}>{fmt$(cum)}{cum>=accruedBal?" ✓":""}</span></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </ScrollTable>
+            <div style={{ color:C.muted, fontSize:12, lineHeight:1.65, marginTop:12 }}>Rows highlighted once cumulative gross profit surpasses accrued balance of {fmt$(accruedBal)}. Gross profit only — operating expenses reduce actual repayment capacity.</div>
+          </Section>
+
+          <Section>
+            <Eyebrow>Section E</Eyebrow>
+            <H2>Key Risks &amp; Material Disclosures</H2>
+            <RiskList items={[
+              { title:"COGS Not Yet Validated", body:"Unit cost of $1,400 (~40% of retail) is an unconfirmed estimate. Actual cabinet maker quotes could shift this significantly, compressing gross margin and extending the repayment timeline." },
+              { title:"Interest Accrues During Grace Period", body:`No payments are made in Year 1, but interest is not forgiven. Interest accrues monthly on the full ${fmt$(AMOUNT)} principal, increasing the outstanding balance to ${fmt$(accruedBal)} before the first payment.` },
+              { title:"Pre-Revenue Company", body:"Sound Frame has no revenue history. All projections are forward-looking estimates based on market assumptions, not operational performance." },
+              { title:"Price Point Unvalidated at Market", body:"A $3,500 retail price has not been tested with end consumers. Discounting to drive adoption would materially impact the repayment model." },
+              { title:"IP Filing Is Not IP Protection", body:"A provisional patent secures a 12-month priority window — not a granted patent. Utility patent prosecution is multi-year, costly, and not guaranteed." },
+              { title:"Repayment Analysis Uses Gross Profit Only", body:"The month-by-month table reflects gross profit, not free cash flow. Operating expenses are not modeled and will reduce repayment capacity." },
+              { title:"Manufacturing Partner Not Secured", body:"Cabinet maker relationships have not been established. Lead times, minimum order quantities, and production costs are currently unknown." },
+            ]} />
+          </Section>
+        </>
+      );
+    }
+
+    // ─── EQUITY VIEW ─────────────────────────────────────────────────────────────
+    function EquityView() {
+      const [equityIdx, setEquityIdx] = useState(1);
+      const [scenario,  setScenario]  = useState("base");
+      const [exitYr,    setExitYr]    = useState(3);
+      const eq        = EQUITY_OPTIONS[equityIdx];
+      const postMoney = eq.preMoney + AMOUNT;
+      const sc        = SCENARIOS[scenario];
+      const years = [{ label:"Year 1",units:sc.yr1 },{ label:"Year 2",units:sc.yr2 },{ label:"Year 3",units:sc.yr3 }].map(y => {
+        const rev=y.units*BLEND_REV, gp=y.units*BLEND_GP, opExp=rev*OP_EXP_RATE;
+        return { ...y, rev, cogs:y.units*COGS, gp, opExp, netProfit:gp-opExp };
+      });
+      const exitYearData  = years[exitYr-1];
+      const exitScenarios = EXIT_MULTIPLES.map(mult => {
+        const companyVal=exitYearData.rev*mult, investorVal=companyVal*eq.pct;
+        return { mult, companyVal, investorVal, moic:investorVal/AMOUNT };
+      });
+      const TH = { textAlign:"left", padding:"10px 14px", fontSize:10, letterSpacing:2, textTransform:"uppercase", color:C.muted, borderBottom:`2px solid ${C.bgSubtle}`, fontWeight:600, background:"#faf8f4" };
+
+      return (
+        <>
+          <div style={{ background:C.goldLight, borderBottom:`2px solid ${C.goldBorder}`, padding:"24px" }}>
+            <div style={{ maxWidth:900, margin:"0 auto", display:"flex", alignItems:"flex-start", gap:20, flexWrap:"wrap" }}>
+              <div style={{ background:C.gold, borderRadius:10, padding:"14px 18px", textAlign:"center", minWidth:110, flexShrink:0 }}>
+                <div style={{ fontFamily:"'Playfair Display',serif", color:"#fff", fontSize:26, fontWeight:700 }}>Equity</div>
+                <div style={{ fontSize:10, color:"rgba(255,255,255,0.85)", letterSpacing:2, textTransform:"uppercase", marginTop:4, fontWeight:600 }}>Ownership</div>
+              </div>
+              <div>
+                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:19, color:"#3d2c06", fontWeight:700, marginBottom:8 }}>{fmt$(AMOUNT)} for an ownership stake — no payments, no interest, no repayment schedule</div>
+                <p style={{ fontSize:13, color:"#5a420a", lineHeight:1.8 }}>This is an <strong>equity investment</strong>, not a loan. The investor receives a percentage of Sound Frame in exchange for {fmt$(AMOUNT)}. <strong>There are no monthly payments, no fixed interest, and no repayment deadline.</strong> Return is realized through <strong>profit distributions</strong> and/or an <strong>exit event</strong> — acquisition, buyout, or future funding round.</p>
+              </div>
+            </div>
+          </div>
+
+          <Section>
+            <Eyebrow>Executive Summary</Eyebrow>
+            <H2>The Opportunity</H2>
+            <Card>
+              <p style={{ fontSize:14, lineHeight:1.95, color:C.sub }}>Sound Frame is a premium, TV-integrated speaker system built into a custom decorative frame. A working prototype has been completed. This <strong style={{color:C.navy}}>{fmt$(AMOUNT)} equity investment</strong> funds the bridge to production. The investor receives an ownership stake with upside tied directly to company growth and exit value.</p>
+              <div style={{ display:"flex", gap:10, marginTop:16, flexWrap:"wrap" }}>
+                {["No monthly payments","No interest accruing","No repayment deadline","Upside tied to growth"].map(t=>(
+                  <div key={t} style={{ display:"flex", gap:8, alignItems:"center", background:C.positiveBg, border:`1px solid ${C.positiveBdr}`, borderRadius:8, padding:"10px 14px" }}>
+                    <span style={{ color:C.positive, fontWeight:700 }}>✓</span>
+                    <span style={{ fontSize:13, color:C.positive, fontWeight:500 }}>{t}</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </Section>
+
+          <Section>
+            <Eyebrow>Equity Structure</Eyebrow>
+            <H2>Ownership &amp; Valuation</H2>
+            <div style={{ marginBottom:20 }}>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:10, fontWeight:600, letterSpacing:1, textTransform:"uppercase" }}>Equity Stake Being Offered</div>
+              <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                {EQUITY_OPTIONS.map((opt,i) => <PillBtn key={i} active={equityIdx===i} onClick={()=>setEquityIdx(i)}>{opt.label}</PillBtn>)}
+              </div>
+            </div>
+            <Card style={{ padding:0, overflow:"hidden", marginBottom:16 }}>
+              <div style={{ display:"flex" }}>
+                <div style={{ flex:`0 0 ${eq.pct*100}%`, background:C.navy, padding:"20px 22px", minWidth:90 }}>
+                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:30, color:"#fff", fontWeight:700 }}>{eq.label}</div>
+                  <div style={{ fontSize:10, color:"rgba(255,255,255,0.6)", marginTop:4, letterSpacing:1.5, textTransform:"uppercase", fontWeight:600 }}>Investor</div>
+                </div>
+                <div style={{ flex:1, background:C.bgSubtle, padding:"20px 22px" }}>
+                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:30, color:C.navy, fontWeight:700 }}>{(100-eq.pct*100).toFixed(0)}%</div>
+                  <div style={{ fontSize:10, color:C.muted, marginTop:4, letterSpacing:1.5, textTransform:"uppercase", fontWeight:600 }}>Founder Retained</div>
+                </div>
+              </div>
+            </Card>
+            <MetricGrid items={[
+              { lbl:"Investment Amount",    val:fmt$(AMOUNT) },
+              { lbl:"Equity Stake",         val:eq.label },
+              { lbl:"Pre-Money Valuation",  val:fmt$(eq.preMoney) },
+              { lbl:"Post-Money Valuation", val:fmt$(postMoney) },
+              { lbl:"Founder Retained",     val:(100-eq.pct*100).toFixed(0)+"%" },
+              { lbl:"Monthly Payments",     val:"None", highlight:"pos" },
+              { lbl:"Fixed Interest",       val:"None", highlight:"pos" },
+              { lbl:"Return Mechanism",     val:"Exit + Profits" },
+            ]} />
+            <div style={{ color:C.muted, fontSize:12, lineHeight:1.65, marginTop:12 }}>Pre-money valuation is a negotiated figure. Post-money = pre-money + {fmt$(AMOUNT)}. Equity % and valuation subject to negotiation and due diligence.</div>
+          </Section>
+
+          <Section><Eyebrow>Section A</Eyebrow><H2>Use of Funds — {fmt$(AMOUNT)}</H2><FundsTable /></Section>
+
+          <Section>
+            <Eyebrow>Section B</Eyebrow>
+            <H2>Financial Projections — 3 Years</H2>
+            <ScenarioTabs value={scenario} onChange={setScenario} />
+            <ScrollTable>
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                <thead><tr>{["Year","Units","Gross Revenue","Gross Profit","Est. Op. Expenses","Est. Net Profit","GP Margin"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {years.map(y => (
+                    <tr key={y.label}>
+                      <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`,color:C.body,fontWeight:600}}>{y.label}</td>
+                      <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`,fontVariantNumeric:"tabular-nums",fontWeight:500}}>{y.units}</td>
+                      <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`}}><span style={{color:C.navy,fontWeight:600}}>{fmt$(y.rev)}</span></td>
+                      <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`}}><span style={{color:C.positive,fontWeight:500}}>{fmt$(y.gp)}</span></td>
+                      <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`,color:C.muted}}>{fmt$(y.opExp)}</td>
+                      <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`}}><span style={{color:y.netProfit>=0?C.positive:"#991b1b",fontWeight:600}}>{y.netProfit>=0?"":"–"}{fmt$(Math.abs(y.netProfit))}</span></td>
+                      <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`,color:C.sub}}>{Math.round(y.gp/y.rev*100)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </ScrollTable>
+            <div style={{ color:C.muted, fontSize:12, lineHeight:1.65, marginTop:12 }}>Operating expenses estimated at 18% of revenue. Net profit is pre-tax and does not reflect founder compensation.</div>
+          </Section>
+
+          <Section>
+            <Eyebrow>Section C</Eyebrow>
+            <H2>Investor Return — Exit Scenarios</H2>
+            <p style={{ fontSize:13, color:C.muted, lineHeight:1.75, marginBottom:20 }}>An equity investor's return is realized at an exit event. The table models what the investor's <strong style={{color:C.navy}}>{eq.label} stake</strong> is worth across revenue multiples, based on the selected exit year's projected revenue.</p>
+            <div style={{ marginBottom:20 }}>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:10, fontWeight:600, letterSpacing:1, textTransform:"uppercase" }}>Valuation Based on Revenue of</div>
+              <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+                {[1,2,3].map(yr => <PillBtn key={yr} active={exitYr===yr} onClick={()=>setExitYr(yr)}>Year {yr} — {fmt$(years[yr-1].rev)}</PillBtn>)}
+              </div>
+            </div>
+            <ScrollTable style={{ marginBottom:16 }}>
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                <thead><tr>{["Exit Multiple",`Yr ${exitYr} Revenue`,"Implied Co. Value",`Investor's ${eq.label} Value`,"MOIC","Net Return"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {exitScenarios.map(e => {
+                    const moicBg  = e.moic>=4?"#e0f0e8":e.moic>=2?C.goldLight:C.bgSubtle;
+                    const moicClr = e.moic>=4?"#1a4a2a":e.moic>=2?"#5a420a":C.sub;
+                    const moicBdr = e.moic>=4?"#9fd0b0":e.moic>=2?C.goldBorder:C.border;
+                    return (
+                      <tr key={e.mult}>
+                        <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`,color:C.body,fontWeight:600}}>{e.mult}× Revenue</td>
+                        <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`,color:C.muted}}>{fmt$(exitYearData.rev)}</td>
+                        <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`}}><span style={{color:C.navy,fontWeight:600}}>{fmt$(e.companyVal)}</span></td>
+                        <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`}}><span style={{color:C.positive,fontWeight:700,fontSize:14}}>{fmt$(e.investorVal)}</span></td>
+                        <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`}}><span style={{background:moicBg,color:moicClr,border:`1px solid ${moicBdr}`,padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700}}>{fmtX(e.moic)}</span></td>
+                        <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`}}><span style={{color:e.moic>=1?C.positive:"#991b1b",fontWeight:600}}>{e.moic>=1?"+":"–"}{fmt$(Math.abs(e.investorVal-AMOUNT))}</span></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </ScrollTable>
+            <Notice type="gold"><strong>How to read MOIC:</strong> Multiple on Invested Capital — how many times the investor gets their money back. A 4× MOIC on {fmt$(AMOUNT)} returns {fmt$(AMOUNT*4)}. Consumer hardware with strong IP typically trades at <strong>2–5× revenue</strong> at acquisition.</Notice>
+          </Section>
+
+          <Section>
+            <Eyebrow>Section D</Eyebrow>
+            <H2>Profit Distribution Potential</H2>
+            <p style={{ fontSize:13, color:C.muted, lineHeight:1.75, marginBottom:20 }}>Equity holders may receive distributions from net profit. Below is the investor's proportional share of cumulative estimated net profit through Year {exitYr}, under each scenario.</p>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))", gap:12 }}>
+              {Object.entries(SCENARIOS).map(([key,s]) => {
+                const cumNet=[s.yr1,s.yr2,s.yr3].slice(0,exitYr).map(u=>u*BLEND_GP-u*BLEND_REV*OP_EXP_RATE).reduce((a,b)=>a+b,0);
+                const share=cumNet*eq.pct;
+                return (
+                  <Card key={key} style={{ borderTop:`3px solid ${s.accent}` }}>
+                    <div style={{ fontSize:11, color:C.muted, marginBottom:8, fontWeight:600, textTransform:"uppercase", letterSpacing:1 }}>{s.label}</div>
+                    <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24, color:cumNet>=0?C.navy:"#991b1b", fontWeight:700 }}>{cumNet>=0?fmt$(share):"Net loss period"}</div>
+                    <div style={{ color:C.muted, fontSize:12, lineHeight:1.65, marginTop:6 }}>Investor's {eq.label} of {fmt$(Math.max(0,cumNet))} cumulative net profit · Yrs 1–{exitYr}</div>
+                  </Card>
+                );
+              })}
+            </div>
+            <Notice type="warn"><strong>Important:</strong> Profit distributions are not guaranteed. Subject to company cash flow, operating needs, and mutual agreement. Modeled estimates only.</Notice>
+          </Section>
+
+          <Section>
+            <Eyebrow>Section E</Eyebrow>
+            <H2>Key Risks &amp; Material Disclosures</H2>
+            <RiskList items={[
+              { title:"Equity Carries No Guaranteed Return", body:"Unlike a loan, this investment has no fixed repayment date, interest rate, or guaranteed return. The investor's return depends entirely on company performance and a future exit event or profit distributions." },
+              { title:"Pre-Revenue Company", body:"Sound Frame has no revenue history. All projections are forward-looking estimates based on market assumptions, not operational performance." },
+              { title:"Valuation Is Negotiated, Not Independently Verified", body:"The pre-money valuation reflects a negotiated figure, not a third-party appraisal. Investors are encouraged to perform independent due diligence." },
+              { title:"COGS Not Yet Validated", body:"Unit cost of $1,400 (~40% of retail) is an unconfirmed estimate. Actual cabinet maker quotes could shift this significantly, compressing gross margin." },
+              { title:"Price Point Unvalidated at Market", body:"A $3,500 retail price has not been tested with end consumers. Discounting to drive adoption would reduce revenue and net profit." },
+              { title:"Exit Event Is Not Guaranteed", body:"There is no committed timeline or mechanism for an exit event. An acquisition or buyout depends on market conditions and third-party interest outside the founders' full control." },
+              { title:"IP Filing Is Not IP Protection", body:"A provisional patent secures a 12-month priority window only. Utility patent prosecution is multi-year, costly, and not guaranteed to result in issuance." },
+              { title:"Manufacturing Partner Not Secured", body:"Cabinet maker relationships have not been established. Lead times, minimum order quantities, and production costs are currently unknown." },
+            ]} />
+          </Section>
+        </>
+      );
+    }
+
+    // ─── ROOT ────────────────────────────────────────────────────────────────────
+    function App() {
+      const [tab, setTab] = useState("equity");
+      return (
+        <div style={{ background:C.bg, minHeight:"100vh" }}>
+          <div style={{ background:C.navy, padding:"40px 24px 0", textAlign:"center", width:"100%", overflow:"hidden" }}>
+            <div style={{ maxWidth:900, margin:"0 auto" }}>
+              <div style={{ fontSize:10, letterSpacing:5, textTransform:"uppercase", color:"#8aafc8", marginBottom:12, fontWeight:600 }}>
+                Confidential · Investor Proforma · {tab==="equity" ? "Equity Investment" : "Loan & Repayment"}
+              </div>
+              <h1 style={{ fontFamily:"'Playfair Display',serif", fontSize:"clamp(36px,6vw,52px)", color:"#fff", fontWeight:700, letterSpacing:"-1px", marginBottom:4 }}>Sound Frame</h1>
+              <p style={{ color:"#8aafc8", fontSize:14, marginBottom:32 }}>TV-Integrated Speaker Frame &nbsp;·&nbsp; {new Date().toLocaleDateString("en-US",{month:"long",year:"numeric"})}</p>
+              <div style={{ display:"flex", width:"100%", background:"rgba(0,0,0,0.25)", borderRadius:"12px 12px 0 0", padding:"6px 6px 0", gap:4 }}>
+                {[
+                  { key:"equity", label:"Equity Investment", sub:"Ownership stake · No repayment" },
+                  { key:"loan",   label:"Loan & Repayment",  sub:"Fixed term · Grace period · 8% p.a." },
+                ].map(t => (
+                  <button key={t.key} onClick={() => setTab(t.key)}
+                    style={{ flex:1, background:tab===t.key?C.bg:"transparent", color:tab===t.key?C.navy:"rgba(255,255,255,0.65)", border:"none", borderRadius:"8px 8px 0 0", padding:"12px 16px", cursor:"pointer", textAlign:"center", transition:"all .2s" }}>
+                    <div style={{ fontWeight:600, fontSize:14 }}>{t.label}</div>
+                    <div style={{ fontSize:11, opacity:0.65, marginTop:3 }}>{t.sub}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ background:C.bgSubtle, borderBottom:`1px solid ${C.border}`, padding:"14px 24px" }}>
+            <div style={{ maxWidth:900, margin:"0 auto" }}>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(130px, 1fr))", gap:10 }}>
+                {(tab==="loan" ? [
+                  { lbl:"Amount",          val:fmt$(AMOUNT),      clr:C.navy },
+                  { lbl:"Structure",       val:"36-Month Loan",   clr:C.navy },
+                  { lbl:"Year 1",          val:"No Payments",     clr:C.gold },
+                  { lbl:"Repayment Starts",val:"Month 13",        clr:C.navy },
+                  { lbl:"Monthly (Yr 2+)", val:fmt$(monthlyPmt),  clr:C.navy },
+                  { lbl:"Rate",            val:"8% p.a.",         clr:C.navy },
+                ] : [
+                  { lbl:"Amount",          val:fmt$(AMOUNT),      clr:C.navy },
+                  { lbl:"Structure",       val:"Equity Stake",    clr:C.navy },
+                  { lbl:"Monthly Payments",val:"None",            clr:C.positive },
+                  { lbl:"Fixed Interest",  val:"None",            clr:C.positive },
+                  { lbl:"Repayment",       val:"Not Required",    clr:C.positive },
+                  { lbl:"Return Path",     val:"Exit + Profits",  clr:C.navy },
+                ]).map(s => (
+                  <div key={s.lbl} style={{ background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px" }}>
+                    <div style={{ fontSize:10, letterSpacing:1.5, textTransform:"uppercase", color:C.muted, fontWeight:600, marginBottom:4, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{s.lbl}</div>
+                    <div style={{ fontFamily:"'Playfair Display',serif", fontSize:16, color:s.clr, fontWeight:700, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{s.val}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {tab === "loan" ? <LoanView /> : <EquityView />}
+
+          <div style={{ background:C.navy, padding:"40px 36px", textAlign:"center" }}>
+            <div style={{ width:40, height:2, background:"rgba(255,255,255,0.15)", margin:"0 auto 20px" }} />
+            <p style={{ fontSize:11, color:"#8aafc8", lineHeight:2, maxWidth:600, margin:"0 auto" }}>This proforma is provided for investor discussion purposes only. It does not constitute a guarantee of financial performance, a securities offering, or legal or financial advice. All projections are estimates based on stated assumptions and do not represent a binding agreement. Recipients are encouraged to conduct independent due diligence and consult qualified legal and financial advisors.</p>
+            <p style={{ fontSize:11, color:"#4a6a8a", marginTop:16 }}>Sound Frame · {new Date().getFullYear()} · Confidential</p>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App />);
+  </script>
+</body>
+</html>
