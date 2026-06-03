@@ -1,0 +1,1132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Harmoniq | Sound Frame — Investor Proforma</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #f7f5f1; font-family: 'Inter', sans-serif; }
+    button { font-family: 'Inter', sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // ─── Shared Constants ────────────────────────────────────────────────────────
+    const AMOUNT       = 75000;
+    const LOAN_TERM    = 36;
+    const GRACE        = 12;
+    const RATE         = 0.08;
+    // ── Product Pricing — Size Tiers ──────────────────────────────────────────
+    // CI dealer cost = 80% of MSRP across all sizes (Sonos/Ubiquiti thin-margin model).
+    // Dealer makes real money on the amp + labor, not the hardware.
+    // COGS scales with frame perimeter across TV sizes.
+    const CI_MARGIN = 0.80;
+    const SIZE_TIERS = [
+      { size:'55"', msrp:3500, cogs:1200, mix:0.10 },  // same MSRP as 65" — smaller frame, better GP
+      { size:'65"', msrp:3500, cogs:1400, mix:0.30 },
+      { size:'75"', msrp:4000, cogs:1625, mix:0.35 },  // expected bestseller
+      { size:'85"', msrp:5000, cogs:1850, mix:0.20 },
+      { size:'98"', msrp:6500, cogs:2100, mix:0.05 },  // premium, lowest volume
+    ].map(t => ({ ...t, ciPrice: Math.round(t.msrp * CI_MARGIN), gp: Math.round(t.msrp * CI_MARGIN) - t.cogs }));
+
+    // Size-weighted blended figures across expected sales mix
+    const BLEND_REV = Math.round(SIZE_TIERS.reduce((a,t) => a + t.ciPrice * t.mix, 0));
+    const BLEND_GP  = Math.round(SIZE_TIERS.reduce((a,t) => a + t.gp     * t.mix, 0));
+    const COGS      = Math.round(SIZE_TIERS.reduce((a,t) => a + t.cogs   * t.mix, 0));
+
+    // 65" anchor refs for display
+    const MSRP      = 3500;
+    const CI_PRICE  = Math.round(MSRP * CI_MARGIN); // $2,800
+    const DTC_PRICE = MSRP; // conditional future channel only
+
+    const BLEND_REV_Y12 = BLEND_REV;
+    const BLEND_GP_Y12  = BLEND_GP;
+    const BLEND_REV_Y3  = BLEND_REV;
+    const BLEND_GP_Y3   = BLEND_GP;
+    const OP_EXP_RATE  = 0.18;
+
+    // ─── Loan Calcs ──────────────────────────────────────────────────────────────
+    const accruedBal  = AMOUNT * Math.pow(1 + RATE / 12, GRACE);
+    const repayMonths = LOAN_TERM - GRACE;
+    const monthlyPmt  = (() => {
+      const r = RATE / 12;
+      return (accruedBal * r) / (1 - Math.pow(1 + r, -repayMonths));
+    })();
+    const graceInt = accruedBal - AMOUNT;
+    const totalInt = graceInt + (monthlyPmt * repayMonths - accruedBal);
+
+    // ─── Equity Options ──────────────────────────────────────────────────────────
+    const RECOMMENDED_PREMONEY = 200000;
+    const RECOMMENDED_EQUITY   = 75000 / (200000 + 75000);
+    const EQUITY_OPTIONS = [
+      { pct: 0.23, label: "23%", preMoney: 250000, note: "Founder-favorable — top of honest range" },
+      { pct: 0.27, label: "27%", preMoney: 200000, note: "Recommended — mid honest range" },
+      { pct: 0.33, label: "33%", preMoney: 150000, note: "Investor-favorable — bottom of honest range" },
+      { pct: 0.38, label: "38%", preMoney: 120000, note: "Aggressive investor ask" },
+    ];
+    const EXIT_MULTIPLES = [2, 4, 6, 8];
+
+    // ─── Scenarios ───────────────────────────────────────────────────────────────
+    const SCENARIOS = {
+      conservative: { label: "Conservative", sub: "Avg 1–2 units/month, slow ramp", accent: "#92400e", yr1: 26,  yr2: 42,  yr3: 60  },
+      base:         { label: "Base",         sub: "Scaling to 5–6 units/month by Year 1 end", accent: "#1e3a5f", yr1: 38, yr2: 72, yr3: 108 },
+      optimistic:   { label: "Optimistic",   sub: "Fast ramp — dedicated production by Q3", accent: "#4a1d6b", yr1: 62, yr2: 120, yr3: 180 },
+    };
+
+    const FUNDS = [
+      { item: "CAD Engineering & Design", pct: 27, amount: 20000, note: '3D modeling, tolerancing, spec sheets — 55", 65", 75" variants' },
+      { item: "Cabinet Maker Prototypes", pct: 33, amount: 25000, note: "Production-quality samples across all three frame sizes" },
+      { item: "Trade Secret & IP Protection", pct: 20, amount: 15000, note: "Proprietary crossover PCB legal documentation, manufacturer NDAs, prior art date establishment, and trade secret protocols" },
+      { item: "Website & Trade Marketing",pct: 11, amount:  8000, note: "E-commerce build-out, trade collateral, product photography" },
+      { item: "Audio Components / R&D",   pct:  5, amount:  4000, note: "Speaker driver sourcing and acoustic refinement" },
+      { item: "Contingency Reserve",      pct:  4, amount:  3000, note: "Cost overruns, supplier revisions, unforeseen expenses" },
+    ];
+
+    const fmt$ = n => "$" + Math.round(n).toLocaleString();
+    const fmtX = n => n.toFixed(1) + "x";
+
+    // ─── Palette ─────────────────────────────────────────────────────────────────
+    const C = {
+      bg: "#f7f5f1", bgCard: "#ffffff", bgSubtle: "#f2efe9",
+      border: "#e5dfd5", borderMid: "#d5cec2",
+      navy: "#1a2b3c", gold: "#b8943a", goldLight: "#fdf6e3", goldBorder: "#e8d08a",
+      positive: "#2d5a3d", positiveBg: "#f0f7f3", positiveBdr: "#a8d4b8",
+      warning: "#7c3500", warningBg: "#fef6ec", warningBdr: "#f5c87a",
+      muted: "#8a8070", body: "#2e2a24", sub: "#5a5248",
+    };
+
+    // ─── Shared Components ───────────────────────────────────────────────────────
+    function ScrollTable({ children, style = {} }) {
+      const [showHint, setShowHint] = useState(true);
+      const ref = useRef(null);
+      useEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        const check = () => setShowHint(el.scrollLeft < 10 && el.scrollWidth > el.clientWidth + 4);
+        check();
+        el.addEventListener("scroll", check);
+        window.addEventListener("resize", check);
+        return () => { el.removeEventListener("scroll", check); window.removeEventListener("resize", check); };
+      }, []);
+      return (
+        <div style={{ position: "relative" }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6, marginBottom:8, opacity: showHint ? 1 : 0, transition:"opacity .3s", pointerEvents:"none" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.muted} strokeWidth="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+            <span style={{ fontSize:11, color:C.muted, letterSpacing:1.5, textTransform:"uppercase", fontWeight:600 }}>Slide to scroll</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.muted} strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          </div>
+          <div ref={ref} style={{ overflowX:"auto", borderRadius:12, border:`1px solid ${C.border}`, background:"#fff", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", ...style }}>
+            {children}
+          </div>
+          <div style={{ position:"absolute", bottom:0, right:0, width:48, height:"calc(100% - 30px)", background:"linear-gradient(to right, transparent, rgba(255,255,255,0.95))", borderRadius:"0 12px 12px 0", pointerEvents:"none", opacity: showHint ? 1 : 0, transition:"opacity .3s" }} />
+        </div>
+      );
+    }
+
+    function Eyebrow({ children }) {
+      return <div style={{ fontSize:10, letterSpacing:4, textTransform:"uppercase", color:C.gold, marginBottom:12, fontWeight:600 }}>{children}</div>;
+    }
+    function H2({ children }) {
+      return <div style={{ fontFamily:"'Playfair Display',serif", fontSize:31, color:C.navy, marginBottom:28, fontWeight:600, lineHeight:1.2 }}>{children}</div>;
+    }
+    function Card({ children, style }) {
+      return <div style={{ background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:12, padding:"22px 26px", boxShadow:"0 1px 3px rgba(0,0,0,0.04)", ...style }}>{children}</div>;
+    }
+    function Section({ children }) {
+      return <div style={{ maxWidth:900, margin:"0 auto", padding:"48px 24px", borderBottom:`1px solid ${C.border}` }}>{children}</div>;
+    }
+    function Notice({ children, type = "warn" }) {
+      const s = { warn:{ bg:C.warningBg, border:C.warningBdr, color:C.warning }, gold:{ bg:C.goldLight, border:C.goldBorder, color:"#5a420a" }, success:{ bg:C.positiveBg, border:C.positiveBdr, color:C.positive } }[type];
+      return <div style={{ padding:"14px 18px", background:s.bg, border:`1px solid ${s.border}`, borderRadius:10, fontSize:13, color:s.color, lineHeight:1.75, marginTop:14 }}>{children}</div>;
+    }
+    function ScenarioTabs({ value, onChange }) {
+      return (
+        <div style={{ display:"flex", gap:10, marginBottom:20, flexWrap:"wrap" }}>
+          {Object.entries(SCENARIOS).map(([key, s]) => (
+            <button key={key} onClick={() => onChange(key)}
+              style={{ border:`1.5px solid ${value===key ? s.accent : C.border}`, background:value===key ? C.bgSubtle : C.bgCard, color:value===key ? s.accent : C.muted, padding:"11px 18px", borderRadius:8, cursor:"pointer", fontSize:13, fontWeight:500, textAlign:"left", transition:"all .15s" }}>
+              <div style={{ fontWeight:600 }}>{s.label}</div>
+              <div style={{ fontSize:11, opacity:0.7, marginTop:2 }}>{s.sub}</div>
+            </button>
+          ))}
+        </div>
+      );
+    }
+    function PillBtn({ active, onClick, children }) {
+      return <button onClick={onClick} style={{ border:`1.5px solid ${active ? C.navy : C.border}`, background:active ? C.navy : C.bgCard, color:active ? "#fff" : C.muted, padding:"9px 18px", borderRadius:8, cursor:"pointer", fontSize:13, fontWeight:600, transition:"all .15s" }}>{children}</button>;
+    }
+    function MetricGrid({ items }) {
+      return (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(148px, 1fr))", gap:12 }}>
+          {items.map(m => (
+            <Card key={m.lbl} style={m.highlight ? { background: m.highlight==="gold" ? C.goldLight : C.positiveBg, border:`1px solid ${m.highlight==="gold" ? C.goldBorder : C.positiveBdr}` } : {}}>
+              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24, color:m.highlight==="gold" ? C.gold : m.highlight==="pos" ? C.positive : C.navy, fontWeight:700 }}>{m.val}</div>
+              <div style={{ fontSize:10, letterSpacing:2, textTransform:"uppercase", color:C.muted, marginTop:6 }}>{m.lbl}</div>
+            </Card>
+          ))}
+        </div>
+      );
+    }
+    function FundsTable() {
+      const TH = { textAlign:"left", padding:"10px 14px", fontSize:10, letterSpacing:2, textTransform:"uppercase", color:C.muted, borderBottom:`2px solid ${C.bgSubtle}`, fontWeight:600, background:"#faf8f4" };
+      return (
+        <>
+          <ScrollTable>
+            <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+              <thead><tr>{["Line Item","Amount","Allocation","Purpose"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+              <tbody>
+                {FUNDS.map((f,i) => (
+                  <tr key={i}>
+                    <td style={{ padding:"13px 14px", borderBottom:`1px solid ${C.bgSubtle}`, color:C.body, fontWeight:600 }}>{f.item}</td>
+                    <td style={{ padding:"13px 14px", borderBottom:`1px solid ${C.bgSubtle}` }}><span style={{ color:C.navy, fontWeight:600 }}>{fmt$(f.amount)}</span></td>
+                    <td style={{ padding:"13px 14px", borderBottom:`1px solid ${C.bgSubtle}`, minWidth:120 }}>
+                      <span style={{ color:C.muted, fontSize:12 }}>{f.pct}%</span>
+                      <div style={{ background:C.bgSubtle, borderRadius:4, height:5, marginTop:7 }}><div style={{ width:f.pct+"%", background:C.navy, borderRadius:4, height:5 }} /></div>
+                    </td>
+                    <td style={{ padding:"13px 14px", borderBottom:`1px solid ${C.bgSubtle}`, color:C.muted, fontSize:12, lineHeight:1.6 }}>{f.note}</td>
+                  </tr>
+                ))}
+                <tr style={{ background:C.bgSubtle }}>
+                  <td style={{ padding:"13px 14px", color:C.body, fontWeight:700 }}>Total</td>
+                  <td style={{ padding:"13px 14px" }}><span style={{ color:C.navy, fontWeight:700, fontSize:15 }}>{fmt$(AMOUNT)}</span></td>
+                  <td style={{ padding:"13px 14px" }}><span style={{ color:C.navy, fontWeight:600 }}>100%</span></td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          </ScrollTable>
+          <Notice type="warn"><strong>⚠ Note:</strong> Cabinet maker and IP costs are estimates. Utility patent prosecution extends 2–3 years beyond this raise and will require additional budget not captured here.</Notice>
+        </>
+      );
+    }
+    function AssumptionsGrid() {
+      const assumptions = [
+        { lbl:'MSRP / End Customer Price (65")', val:"$3,500",  note:"What customer pays dealer — dealer adds install labor separately" },
+        { lbl:"CI Dealer Cost (80% of MSRP)",     val:"$2,800+", note:"80% across all sizes — 65\" anchor $2,800, up to $5,200 for 98\"" },
+        { lbl:"Est. COGS / Unit",                 val:"$1,400",  note:"~40% of MSRP · pending cabinet maker quotes" },
+        { lbl:"Primary Channel",                  val:"CI Only", note:"CI dealer channel — professional install required, warranty enforced on all units" },
+        { lbl:"DTC Channel",                      val:"Conditional", note:"Only pursued if rapid demand growth signals emerge by mid-to-late Year 2 — not a baseline assumption" },
+        { lbl:"Revenue / Unit (All Years)",       val:"$2,100",  note:"CI dealer price — Harmoniq's recognized revenue per unit across all modeled years" },
+        { lbl:"65\" Anchor GP / Unit",            val:"$1,400",  note:"$2,800 − $1,400 COGS. See Pricing Tiers above for full size breakdown." },
+        { lbl:"Blended GP / Unit",               val:fmt$(BLEND_GP), note:"Size-weighted across expected mix — improves as larger installs grow." },
+      ];
+      return (
+        <>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(210px, 1fr))", gap:12 }}>
+            {assumptions.map(a => (
+              <Card key={a.lbl}>
+                <div style={{ fontSize:11, color:C.muted, marginBottom:8, fontWeight:500 }}>{a.lbl}</div>
+                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24, color:C.navy, fontWeight:700 }}>{a.val}</div>
+                <div style={{ color:C.muted, fontSize:12, lineHeight:1.65, marginTop:8 }}>{a.note}</div>
+              </Card>
+            ))}
+          </div>
+          <Notice type="warn"><strong>Critical Assumption:</strong> COGS of $1,400/unit (40% of retail) is unvalidated. If actual COGS lands at 50–55% of retail, gross profit per unit drops to $875–$1,050 — narrowing margin materially. Cabinet maker quotes required before committing to a production run.</Notice>
+        </>
+      );
+    }
+    function RiskList({ items }) {
+      return <>{items.map(r => (
+        <div key={r.title} style={{ padding:"15px 20px", borderLeft:`3px solid ${C.borderMid}`, background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:"0 10px 10px 0", marginBottom:10, fontSize:13, color:C.sub, lineHeight:1.7 }}>
+          <div style={{ color:C.body, fontWeight:600, marginBottom:4 }}>{r.title}</div>
+          {r.body}
+        </div>
+      ))}</>;
+    }
+
+
+
+    // ─── Product Pricing Tiers ────────────────────────────────────────────────
+    function PricingTiers() {
+      const TH = { textAlign:"left", padding:"10px 14px", fontSize:10, letterSpacing:2, textTransform:"uppercase", color:C.muted, borderBottom:"2px solid "+C.bgSubtle, fontWeight:600, background:"#faf8f4" };
+      return (
+        <Section>
+          <Eyebrow>Product Pricing</Eyebrow>
+          <H2>Size Tiers — 20% Dealer Margin Across All Sizes</H2>
+          <p style={{ fontSize:13, color:C.muted, lineHeight:1.75, marginBottom:20 }}>
+            Harmoniq pricing scales with TV size. CI dealer cost is fixed at <strong style={{color:C.navy}}>80% of MSRP across every size</strong> — the same structure as the 65" anchor. COGS scales proportionally with frame perimeter. Gross profit improves significantly at larger sizes, and the blended GP across expected sales mix exceeds the 65" baseline.
+          </p>
+          <ScrollTable style={{ marginBottom:16 }}>
+            <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+              <thead><tr>{["TV Size","MSRP","CI Dealer Cost (80%)","Dealer Margin","Est. COGS","Harmoniq GP","Sales Mix"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+              <tbody>
+                {SIZE_TIERS.map((t,i) => (
+                  <tr key={t.size} style={{ background: t.size==='65"' ? C.goldLight : i%2===0 ? C.bgCard : C.bgSubtle }}>
+                    <td style={{ padding:"13px 14px", borderBottom:"1px solid "+C.bgSubtle, color:C.body, fontWeight:t.size==='65"'?700:500 }}>
+                      {t.size}{t.size==='65"' && <span style={{ fontSize:10, color:C.gold, fontWeight:600, letterSpacing:1, marginLeft:8 }}>ANCHOR</span>}
+                    </td>
+                    <td style={{ padding:"13px 14px", borderBottom:"1px solid "+C.bgSubtle }}><span style={{ color:C.navy, fontWeight:600 }}>{fmt$(t.msrp)}</span></td>
+                    <td style={{ padding:"13px 14px", borderBottom:"1px solid "+C.bgSubtle }}><span style={{ color:C.navy, fontWeight:600 }}>{fmt$(t.ciPrice)}</span></td>
+                    <td style={{ padding:"13px 14px", borderBottom:"1px solid "+C.bgSubtle, color:C.muted }}>20% / {fmt$(t.msrp - t.ciPrice)}</td>
+                    <td style={{ padding:"13px 14px", borderBottom:"1px solid "+C.bgSubtle, color:C.muted }}>{fmt$(t.cogs)} <span style={{ fontSize:10 }}>*est.</span></td>
+                    <td style={{ padding:"13px 14px", borderBottom:"1px solid "+C.bgSubtle }}><span style={{ color:C.positive, fontWeight:700 }}>{fmt$(t.gp)}</span></td>
+                    <td style={{ padding:"13px 14px", borderBottom:"1px solid "+C.bgSubtle, color:C.sub }}>{Math.round(t.mix*100)}%</td>
+                  </tr>
+                ))}
+                <tr style={{ background:C.bgSubtle }}>
+                  <td style={{ padding:"13px 14px", color:C.body, fontWeight:700 }}>Blended Average</td>
+                  <td style={{ padding:"13px 14px" }}><span style={{ color:C.navy, fontWeight:700 }}>{fmt$(Math.round(SIZE_TIERS.reduce((a,t)=>a+t.msrp*t.mix,0)))}</span></td>
+                  <td style={{ padding:"13px 14px" }}><span style={{ color:C.navy, fontWeight:700 }}>{fmt$(BLEND_REV)}</span></td>
+                  <td style={{ padding:"13px 14px", color:C.muted }}>20% / {fmt$(Math.round(SIZE_TIERS.reduce((a,t)=>a+(t.msrp-t.ciPrice)*t.mix,0)))}</td>
+                  <td style={{ padding:"13px 14px", color:C.muted }}>{fmt$(COGS)}</td>
+                  <td style={{ padding:"13px 14px" }}><span style={{ color:C.positive, fontWeight:700, fontSize:15 }}>{fmt$(BLEND_GP)}</span></td>
+                  <td style={{ padding:"13px 14px", color:C.muted }}>100%</td>
+                </tr>
+              </tbody>
+            </table>
+          </ScrollTable>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(155px, 1fr))", gap:12, marginBottom:16 }}>
+            {[
+              { lbl:'65" Anchor GP',      val:fmt$(SIZE_TIERS.find(t=>t.size==='65"').gp), note:"Base model — most common CI install" },
+              { lbl:"Blended GP / Unit",  val:fmt$(BLEND_GP),                              note:"Weighted across expected size mix" },
+              { lbl:'98" GP / Unit',      val:fmt$(SIZE_TIERS.find(t=>t.size==='98"').gp), note:"Premium install — strongest margin" },
+              { lbl:"CI Margin All Sizes",val:"20%",                                       note:"Same dealer % regardless of TV size" },
+            ].map(s => (
+              <Card key={s.lbl}>
+                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, color:C.navy, fontWeight:700 }}>{s.val}</div>
+                <div style={{ fontSize:10, letterSpacing:2, textTransform:"uppercase", color:C.muted, marginTop:6 }}>{s.lbl}</div>
+                <div style={{ fontSize:11, color:C.muted, lineHeight:1.5, marginTop:6 }}>{s.note}</div>
+              </Card>
+            ))}
+          </div>
+          <Notice type="warn">
+            <strong>* COGS estimates</strong> are proportional to frame perimeter and have not been validated with cabinet maker quotes. The 65" figure ($1,400) is the most-tested estimate. Larger size COGS should be confirmed before committing to dealer pricing on those tiers. GP improves significantly at larger sizes even under conservative COGS assumptions.
+          </Notice>
+        </Section>
+      );
+    }
+
+    // ─── Market Validation Component (shared) ─────────────────────────────────
+    function MarketValidation() {
+      const [showNote, setShowNote] = React.useState(false);
+      return (
+        <Section>
+          <Eyebrow>Market Validation</Eyebrow>
+          <H2>Proven Market. Dramatically Underserved Price Point.</H2>
+
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(185px, 1fr))", gap:12, marginBottom:24 }}>
+            {[
+              { brand:"NextLevel Acoustics", product:"Audio Art — LCR (any size)", price:"$10,000+", sub:"Starting price. Amplifier not included.", color:C.muted, bg:C.bgSubtle, border:C.border },
+              { brand:"NextLevel Acoustics", product:"Audio Art — Stereo (any size)", price:"$9,600+", sub:"Starting price. Amplifier not included.", color:C.muted, bg:C.bgSubtle, border:C.border },
+              { brand:"NextLevel Acoustics", product:'Audio Art — Dealer Cost (65")', price:"$6,800+", sub:"CI dealer channel only — consumer pays more.", color:C.muted, bg:C.bgSubtle, border:C.border },
+              { brand:"Harmoniq / Sound Frame", product:'Sound Frame — Stereo (65")', price:"$3,500", sub:"65\" anchor MSRP. 55\"–98\" available. Harmoniq earns $2,800–$5,200 by size.", color:C.navy, bg:C.goldLight, border:C.goldBorder },
+            ].map(c => (
+              <div key={c.product} style={{ background:c.bg, border:"1px solid "+c.border, borderRadius:12, padding:"18px 20px" }}>
+                <div style={{ fontSize:10, letterSpacing:2, textTransform:"uppercase", color:C.muted, fontWeight:600, marginBottom:4 }}>{c.brand}</div>
+                <div style={{ fontSize:11, color:C.sub, marginBottom:10, lineHeight:1.4 }}>{c.product}</div>
+                <div style={{ fontFamily:"'Playfair Display',serif", fontSize:28, color:c.color, fontWeight:700 }}>{c.price}</div>
+                <div style={{ fontSize:11, color:C.muted, marginTop:8, lineHeight:1.5, fontStyle:"italic" }}>{c.sub}</div>
+              </div>
+            ))}
+          </div>
+
+          <Card style={{ marginBottom:16 }}>
+            <div style={{ fontSize:11, letterSpacing:2, textTransform:"uppercase", color:C.gold, fontWeight:600, marginBottom:12 }}>The Competitive Case</div>
+            <p style={{ fontSize:14, lineHeight:1.95, color:C.sub, marginBottom:16 }}>
+              NextLevel Acoustics (NLA) is the only company currently selling a full TV-surround speaker frame system. Their flagship <strong style={{color:C.navy}}>Audio Art</strong> launched at CEDIA 2025 with publicly confirmed starting prices of <strong style={{color:C.navy}}>$9,600 for Stereo and $10,000 for LCR configurations</strong>. Like Sound Frame, the Audio Art is a passive system — <strong style={{color:C.navy}}>both products require an external amplifier</strong> (Audio Art specs: 35–300W recommended). NLA targets the custom installer (CI) dealer channel, where a dedicated amplifier in an AV rack is standard. NLA is a bootstrapped 1–10 person company that has operated profitably in this niche for over 10 years without a single dollar of outside investment — the clearest proof this market exists and sustains a business.
+            </p>
+            <p style={{ fontSize:14, lineHeight:1.95, color:C.sub, marginBottom:16 }}>
+              Harmoniq enters the same product category at <strong style={{color:C.navy}}>$3,500 MSRP — 36% of the Audio Art stereo starting price</strong>, selling exclusively through CI dealers. Like the Audio Art, every Sound Frame requires professional installation — enforced through the warranty. The key differentiator is price point and ecosystem flexibility. Sound Frame is engineered to pair with any <strong style={{color:C.navy}}>50W+ per channel streaming amplifier</strong> — including platforms the dealer or customer already uses: <strong style={{color:C.navy}}>Sonos Amp, Bluesound PowerNode, WiiM Amp, or any HEOS-compatible Denon/Marantz receiver</strong>. This makes Sound Frame easy to integrate into any existing CI installation without requiring a proprietary amplification ecosystem.
+            </p>
+            <p style={{ fontSize:14, lineHeight:1.95, color:C.sub, marginBottom:20 }}>
+              Like NLA, Harmoniq sells exclusively through CI dealer channels — professional installation is required and warranty-enforced. This is a <strong style={{color:C.navy}}>deliberate quality and brand protection strategy</strong>, not a distribution limitation. Harmoniq prices at <strong style={{color:C.navy}}>~80% of MSRP to dealers ($2,800)</strong> — a thin hardware margin by design, consistent with how Sonos and Ubiquiti structure their dealer programs. Dealers make their real money on the amplifier and installation labor attached to every Sound Frame job — a total install value of $1,200–$1,500+ per customer. Where Sound Frame diverges from NLA is price: $3,500 MSRP versus $9,600+ for Audio Art, and ecosystem flexibility — any 50W+ streaming amp works, including Sonos, Bluesound, WiiM, and HEOS. A DTC channel is a conditional future opportunity if demand signals warrant it, but Harmoniq's core model mirrors and competes directly with NLA's proven CI approach.
+            </p>
+
+            <div style={{ background:C.bgSubtle, borderRadius:10, padding:"16px 20px", marginBottom:20 }}>
+              <div style={{ fontSize:11, color:C.muted, fontWeight:600, letterSpacing:1, textTransform:"uppercase", marginBottom:12 }}>Price Gap — 65" Stereo Equivalent</div>
+              <div style={{ display:"flex", alignItems:"center", gap:16, flexWrap:"wrap" }}>
+                <div>
+                  <div style={{ fontSize:10, color:C.muted, marginBottom:4 }}>Audio Art (excl. amp)</div>
+                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, color:C.sub, fontWeight:700 }}>$9,600</div>
+                </div>
+                <div style={{ flex:1, minWidth:120 }}>
+                  <div style={{ position:"relative", height:22, background:C.border, borderRadius:20, overflow:"hidden" }}>
+                    <div style={{ position:"absolute", left:0, top:0, height:"100%", width:"36%", background:C.navy, borderRadius:20 }} />
+                  </div>
+                  <div style={{ fontSize:11, color:C.navy, fontWeight:600, marginTop:6, textAlign:"center" }}>Sound Frame = 36% of competitor retail — both require external amp</div>
+                </div>
+                <div>
+                  <div style={{ fontSize:10, color:C.muted, marginBottom:4 }}>Sound Frame (all-in)</div>
+                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, color:C.navy, fontWeight:700 }}>$3,500</div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+              {[
+                "Market proven: NLA has sold this concept for 10+ years at 2.7x our price",
+                "Both are passive systems — Sound Frame pairs with Sonos, WiiM, Bluesound, HEOS, or any 50W+ stereo amp",
+                "NLA is dealer-only — Sound Frame is DTC and trade accessible",
+                "No integrator needed to buy Sound Frame — opens mass affluent market",
+                "Same full-surround form factor at a fraction of the total system cost",
+                "Growing category — Leon Speakers now entering with a competing product",
+              ].map(t => (
+                <div key={t} style={{ display:"flex", gap:8, alignItems:"flex-start", background:C.positiveBg, border:"1px solid "+C.positiveBdr, borderRadius:8, padding:"10px 14px", flex:"1 1 180px" }}>
+                  <span style={{ color:C.positive, fontWeight:700, marginTop:1, flexShrink:0 }}>✓</span>
+                  <span style={{ fontSize:12, color:C.positive, fontWeight:500, lineHeight:1.5 }}>{t}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Ecosystem compatibility */}
+            <div style={{ marginTop:20, padding:"16px 20px", background:C.bgSubtle, borderRadius:10, border:"1px solid "+C.border }}>
+              <div style={{ fontSize:11, letterSpacing:2, textTransform:"uppercase", color:C.navy, fontWeight:600, marginBottom:12 }}>Ecosystem Compatibility — Works With What You Already Own</div>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))", gap:10 }}>
+                {[
+                  { brand:"Sonos Amp", price:"$699", note:"Most popular whole-home audio platform" },
+                  { brand:"Bluesound PowerNode", price:"$699", note:"High-res streaming, MQA support" },
+                  { brand:"WiiM Amp", price:"$149", note:"Budget-friendly, Tidal/Spotify/AirPlay" },
+                  { brand:"HEOS (Denon/Marantz)", price:"Varies", note:"Works with existing AV receivers" },
+                  { brand:"Any Stereo Amp 50W+", price:"Any price", note:"No proprietary ecosystem required" },
+                ].map(e => (
+                  <div key={e.brand} style={{ background:C.bgCard, border:"1px solid "+C.border, borderRadius:8, padding:"12px 14px" }}>
+                    <div style={{ fontSize:12, color:C.navy, fontWeight:600, marginBottom:3 }}>{e.brand}</div>
+                    <div style={{ fontFamily:"'Playfair Display',serif", fontSize:16, color:C.gold, fontWeight:700, marginBottom:4 }}>{e.price}</div>
+                    <div style={{ fontSize:11, color:C.muted, lineHeight:1.4 }}>{e.note}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize:12, color:C.sub, lineHeight:1.7, marginTop:12 }}>
+                <strong style={{color:C.body}}>Total system cost example:</strong> Sound Frame $3,500 MSRP + WiiM Amp $149 + installation labor = <strong style={{color:C.navy}}>~$3,800–$4,200 complete system</strong> — vs. Audio Art at $9,600+ before amplification. The dealer earns $700 hardware margin on the Sound Frame, plus amp margin and labor — making the full install job worth $1,200–$1,500+ in total dealer revenue.
+              </div>
+            </div>
+          </Card>
+
+          <div style={{ display:"flex", alignItems:"flex-start", gap:10, background:C.bgSubtle, border:"1px solid "+C.border, borderRadius:10, padding:"14px 18px" }}>
+            <span style={{ color:C.muted, fontSize:16, flexShrink:0 }}>ℹ</span>
+            <div>
+              <div style={{ fontSize:12, color:C.sub, lineHeight:1.7 }}>
+                <strong style={{color:C.body}}>On NLA revenue:</strong> NextLevel Acoustics is a private, bootstrapped company that has never raised outside funding and does not disclose financial figures. No verified annual revenue is publicly available. Their 10-year profitable operation as a small team without investor capital is the most credible signal of market viability available.
+              </div>
+              <button onClick={() => setShowNote(!showNote)} style={{ marginTop:8, fontSize:11, color:C.gold, background:"none", border:"none", cursor:"pointer", padding:0, fontWeight:600 }}>
+                {showNote ? "Hide source details" : "View source details"}
+              </button>
+              {showNote && (
+                <div style={{ marginTop:10, fontSize:12, color:C.muted, lineHeight:1.8, borderTop:"1px solid "+C.border, paddingTop:10 }}>
+                  <strong style={{color:C.sub}}>Pricing Sources:</strong><br/>
+                  Audio Art Stereo starting at $9,600 / LCR at $10,000: eCoustics.com, CEDIA 2025 launch coverage, August 31 2025<br/>
+                  "All Audio Art systems are passive and require external amplification, which is not included": same source<br/>
+                  Dealer cost ($6,800+): Verified via Sound Frame founder active NLA dealer account<br/>
+                  NLA company profile (1-10 employees, founded 2015, no outside funding): Prospeo, Crunchbase<br/>
+                  Leon Speakers Ente SoundTile identified as emerging competitor: eCoustics.com CEDIA 2025
+                </div>
+              )}
+            </div>
+          </div>
+        </Section>
+      );
+    }
+
+
+    // ─── Build-To-Order Model ─────────────────────────────────────────────────
+    function BuildToOrder() {
+      return (
+        <Section>
+          <Eyebrow>Production Model</Eyebrow>
+          <H2>Build-To-Order — Zero Inventory Risk</H2>
+          <Card style={{ marginBottom:16 }}>
+            <div style={{ fontSize:11, letterSpacing:2, textTransform:"uppercase", color:C.gold, fontWeight:600, marginBottom:12 }}>How It Works</div>
+            <p style={{ fontSize:14, lineHeight:1.95, color:C.sub, marginBottom:16 }}>
+              Harmoniq operates on a <strong style={{color:C.navy}}>build-to-order model</strong> — no unit is produced until a confirmed sale is placed. CNC-machined wood frames are sourced from a cabinet maker, speakers and proprietary crossover boards are installed by the Harmoniq team, and the finished product ships to the customer. This eliminates inventory risk entirely — every dollar of COGS is tied to confirmed revenue.
+            </p>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))", gap:12, marginBottom:20 }}>
+              {[
+                { label:"Year 1 Capacity", val:"1–6 / month", sub:"Starting at 1–2, scaling as suppliers and process mature", color:C.navy },
+                { label:"Year 2 Capacity", val:"4–10 / month", sub:"Increased dedicated production time as orders grow", color:C.navy },
+                { label:"Year 3 Transition", val:"Outsourced Assembly", sub:"Volume justifies dedicated assembly capacity or CM partnership", color:C.positive },
+                { label:"Inventory Risk", val:"Zero", sub:"No unit built without a confirmed paid order", color:C.positive },
+              ].map(s => (
+                <div key={s.label} style={{ background:C.bgSubtle, border:"1px solid "+C.border, borderRadius:10, padding:"16px 18px" }}>
+                  <div style={{ fontSize:10, letterSpacing:2, textTransform:"uppercase", color:C.muted, fontWeight:600, marginBottom:6 }}>{s.label}</div>
+                  <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, color:s.color, fontWeight:700, marginBottom:4 }}>{s.val}</div>
+                  <div style={{ fontSize:11, color:C.muted, lineHeight:1.5 }}>{s.sub}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+              {[
+                "COGS only triggered by confirmed revenue — no cash tied up in stock",
+                "CI channel standard: dealers quote 2–6 week lead times on custom AV products",
+                "NLA and most high-end AV brands operate the same way",
+                "DTC channel is conditional — only pursued if rapid demand growth emerges by mid-to-late Year 2",
+              ].map(t => (
+                <div key={t} style={{ display:"flex", gap:8, alignItems:"flex-start", background:C.positiveBg, border:"1px solid "+C.positiveBdr, borderRadius:8, padding:"10px 14px", flex:"1 1 200px" }}>
+                  <span style={{ color:C.positive, fontWeight:700, flexShrink:0 }}>✓</span>
+                  <span style={{ fontSize:12, color:C.positive, lineHeight:1.5 }}>{t}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
+          <Notice type="gold">
+            <strong>Investor note:</strong> Build-to-order intentionally produces conservative Year 1 unit projections (26–62 units depending on scenario). This is honest — not a weakness. Every projected unit has a realistic path to production. The 16 warm prospects already identified at the $3,500–$4,000 price point represent potential <strong>first-month backlog</strong> before a single marketing dollar is spent.
+          </Notice>
+        </Section>
+      );
+    }
+
+    // ─── Valuation Methodology ────────────────────────────────────────────────
+    function ValuationMethodology() {
+      const [open, setOpen] = React.useState(null);
+      const toggle = key => setOpen(open === key ? null : key);
+
+      const methods = [
+        {
+          key:"berkus", name:"1 — Berkus Method", result:"$325,000", verdict:"Upper bound", verdictColor:C.muted,
+          detail:[
+            { factor:"Sound, differentiated idea",    value:"$100,000", note:"Real differentiation but NLA already occupies the category — not a novel concept" },
+            { factor:"Working prototype",             value:"$150,000", note:"Positive dealer reaction, but founder-built — not engineered to production spec" },
+            { factor:"Management team",               value:"$0",       note:"Solo founder, no registered business entity, no commercial track record" },
+            { factor:"Strategic relationships",       value:"$50,000",  note:"Verbal dealer interest only — no signed agreements, no paper trail" },
+            { factor:"Sales pipeline",                value:"$25,000",  note:"16 warm prospects, zero signed LOIs, zero deposits received" },
+          ],
+          summary:"Berkus is designed for tech startups where a prototype represents hundreds of thousands in engineering. A founder-built physical product prototype warrants significantly lower factor values. Honest total: $325,000.",
+        },
+        {
+          key:"scorecard", name:"2 — Scorecard Method", result:"$175K–$250K", verdict:"Honest mid range", verdictColor:C.navy,
+          detail:[
+            { factor:"Base: pre-revenue physical product, niche market",  value:"$200,000",   note:"Correct base for an unregistered single-founder hardware business — not the $750K–$1M SaaS benchmark" },
+            { factor:"Team strength (30%)",            value:"70% → 0.21", note:"Strong domain expertise but no LLC, no co-founder, no commercial track record" },
+            { factor:"Market opportunity (25%)",       value:"100% → 0.25",note:"Category proven by NLA — but niche, not venture-scale" },
+            { factor:"Product & technology (20%)",     value:"85% → 0.17", note:"Prototype works but not production-ready, no IP filed, COGS unvalidated" },
+            { factor:"Competitive environment (15%)",  value:"80% → 0.12", note:"NLA has a 10-year head start, no signed dealer exclusivity" },
+            { factor:"Sales & marketing (10%)",        value:"60% → 0.06", note:"Verbal interest only — no agreements, no deposits, no brand" },
+          ],
+          summary:"Composite multiplier: 0.81. Base $200K × 0.81 = ~$162K. Rounded to honest range of $175K–$250K accounting for the positive prototype reaction and price gap vs NLA.",
+        },
+        {
+          key:"riskfactor", name:"3 — Risk Factor Summation", result:"~$100,000", verdict:"Harshest — most grounded", verdictColor:C.warning,
+          detail:[
+            { factor:"Base valuation",                  value:"$200,000",  note:"Pre-revenue physical product, niche market, no legal entity" },
+            { factor:"No LLC or legal entity",          value:"–$25,000",  note:"Cannot enforce contracts, hold IP, or accept investment formally" },
+            { factor:"No manufacturer secured",         value:"–$50,000",  note:"Largest operational unknown — product cannot ship without this" },
+            { factor:"COGS unvalidated",                value:"–$25,000",  note:"Entire financial model rests on an unconfirmed estimate" },
+            { factor:"No IP protection of any kind",    value:"–$25,000",  note:"Anyone can legally copy the product tomorrow" },
+            { factor:"Solo founder, no track record",   value:"–$25,000",  note:"Single point of failure, no proof of execution at commercial scale" },
+            { factor:"Zero revenue, zero signed orders",value:"–$50,000",  note:"No commercial validation whatsoever" },
+            { factor:"Positive dealer verbal reaction",  value:"+$25,000",  note:"Real signal — meaningful, but no paper to back it up" },
+            { factor:"Prototype impresses in demo",      value:"+$25,000",  note:"Meaningful but one data point, not repeatable without manufacturer" },
+            { factor:"NLA proves category exists",       value:"+$25,000",  note:"Market validation — but NLA never raised funding or attracted acquisition" },
+            { factor:"Price point gap vs NLA ($9,600+)", value:"+$25,000",  note:"Compelling commercial thesis — not yet validated at market" },
+          ],
+          summary:"Net: –$100,000. Final result: $100,000. The harshest but most honest assessment of where Harmoniq stands today with no entity, no manufacturer, no IP, and no signed orders.",
+        },
+        {
+          key:"multiple", name:"4 — Revenue Multiple Method", result:"$47K–$94K", verdict:"Most grounded — lowest result", verdictColor:C.warning,
+          detail:[
+            { factor:"Realistic Year 1 units",          value:"15–20 units", note:"Starting from zero: no manufacturer, no dealer agreements, no brand — 38 units assumes infrastructure that doesn't exist yet" },
+            { factor:"Blended CI revenue per unit",      value:"~$3,116",     note:"Size-weighted across expected sales mix" },
+            { factor:"Realistic Year 1 revenue",         value:"$47K–$62K",   note:"15–20 units × $3,116" },
+            { factor:"At 1× revenue multiple",           value:"$47K–$62K",   note:"Appropriate for pre-revenue with no manufacturer secured" },
+            { factor:"At 2× revenue multiple",           value:"$94K–$124K",  note:"Only justified if manufacturer quote and one LOI exist" },
+          ],
+          summary:"The most honest method because it ties directly to what the business can realistically produce given current constraints. 38 units assumes infrastructure that does not yet exist.",
+        },
+        {
+          key:"vc", name:"5 — VC / DCF Method", result:"$164K–$205K", verdict:"Forward-looking — use with caution", verdictColor:C.muted,
+          detail:[
+            { factor:"Year 3 base revenue (108 units)", value:"$336,480",    note:"108 × $3,116 blended CI price — assumes manufacturer and growing dealer network by then" },
+            { factor:"Exit multiple — niche audio HW",  value:"1.5–2.5×",   note:"NLA operated 10+ years and never attracted acquisition. This is not a venture exit category. Previous 3–5× was incorrect." },
+            { factor:"Exit value range",                 value:"$504K–$841K", note:"$336K × 1.5–2.5×" },
+            { factor:"Discount rate",                    value:"60% annually",note:"Appropriate for pre-entity, pre-manufacturer, pre-IP physical product" },
+            { factor:"Discount factor over 3 years",     value:"÷ 4.096",    note:"(1.6)³ = 4.096" },
+            { factor:"Present value range",              value:"$123K–$205K", note:"Honest present value given stage and category" },
+          ],
+          summary:"Previous version used 3–5× exit multiples — incorrect for this category. NLA bootstrapped for 10+ years without acquisition interest. Corrected to 1.5–2.5×. This is a lifestyle/small business category, not a venture exit.",
+        },
+      ];
+
+      const consensus = [
+        { method:"Berkus",             result:"$325,000",    weight:"Upper bound only — overstates prototype value",   highlight:false },
+        { method:"Scorecard",          result:"$175K–$250K", weight:"Moderate weight — honest base rate used",         highlight:false },
+        { method:"Risk Factor Sum.",   result:"~$100,000",   weight:"High weight — most grounded asset assessment",    highlight:false },
+        { method:"Revenue Multiple",   result:"$47K–$94K",   weight:"Highest weight — tied to real producible output", highlight:false },
+        { method:"VC / DCF",           result:"$164K–$205K", weight:"Moderate weight — corrected exit multiple",       highlight:false },
+        { method:"Honest Range",       result:"$150K–$250K", weight:"Weighted consensus excl. Berkus upper bound",     highlight:true  },
+        { method:"Recommended Pre-Money", result:"$200,000", weight:"Conservative mid-range — defensible and honest",  highlight:true, final:true },
+      ];
+
+      return (
+        <Section>
+          <Eyebrow>Valuation Methodology</Eyebrow>
+          <H2>How We Arrived at $200,000 Pre-Money</H2>
+          <div style={{ padding:"16px 20px", background:C.warningBg, border:"1px solid "+C.warningBdr, borderRadius:10, fontSize:13, color:C.warning, lineHeight:1.75, marginBottom:24 }}>
+            <strong>Honest assessment:</strong> Harmoniq currently has no revenue, no legal entity, no manufacturer, no filed IP, and no signed commitments from dealers or customers. The valuation below reflects that reality directly. Earlier versions of this proforma overstated the valuation — these numbers are corrected and defensible.
+          </div>
+          <p style={{ fontSize:13, color:C.muted, lineHeight:1.75, marginBottom:24 }}>
+            Five standard pre-revenue startup valuation methods applied with no optimistic adjustments. Recommended pre-money: <strong style={{color:C.navy}}>$200,000</strong>. Tap each method to see the full calculation. See the Milestone Roadmap section for what moves this number up.
+          </p>
+
+          {methods.map(m => (
+            <div key={m.key} style={{ marginBottom:10, border:"1px solid "+C.border, borderRadius:10, overflow:"hidden" }}>
+              <button onClick={() => toggle(m.key)}
+                style={{ width:"100%", background:open===m.key?C.bgSubtle:C.bgCard, border:"none", padding:"16px 20px", cursor:"pointer", fontFamily:"inherit", textAlign:"left", display:"flex", justifyContent:"space-between", alignItems:"center", gap:12 }}>
+                <div>
+                  <div style={{ fontSize:13, color:C.navy, fontWeight:600 }}>{m.name}</div>
+                  <div style={{ fontSize:11, color:C.muted, marginTop:3 }}>{m.verdict}</div>
+                </div>
+                <div style={{ display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
+                  <span style={{ fontFamily:"'Playfair Display',serif", fontSize:18, color:m.verdictColor, fontWeight:700 }}>{m.result}</span>
+                  <span style={{ color:C.muted, fontSize:16 }}>{open===m.key?"▲":"▼"}</span>
+                </div>
+              </button>
+              {open===m.key && (
+                <div style={{ padding:"0 20px 20px", borderTop:"1px solid "+C.border, background:C.bgCard }}>
+                  <ScrollTable style={{ marginTop:16 }}>
+                    <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                      <thead><tr>{["Factor","Value","Notes"].map(h=><th key={h} style={{textAlign:"left",padding:"10px 14px",fontSize:10,letterSpacing:2,textTransform:"uppercase",color:C.muted,borderBottom:"2px solid "+C.bgSubtle,fontWeight:600,background:"#faf8f4"}}>{h}</th>)}</tr></thead>
+                      <tbody>
+                        {m.detail.map((d,i)=>(
+                          <tr key={i}>
+                            <td style={{padding:"12px 14px",borderBottom:"1px solid "+C.bgSubtle,color:C.body,fontWeight:500}}>{d.factor}</td>
+                            <td style={{padding:"12px 14px",borderBottom:"1px solid "+C.bgSubtle,color:C.navy,fontWeight:600,whiteSpace:"nowrap"}}>{d.value}</td>
+                            <td style={{padding:"12px 14px",borderBottom:"1px solid "+C.bgSubtle,color:C.muted,fontSize:12,lineHeight:1.5}}>{d.note}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </ScrollTable>
+                  <div style={{ marginTop:12, padding:"12px 16px", background:C.bgSubtle, borderRadius:8, fontSize:12, color:C.sub, lineHeight:1.65 }}>
+                    <strong style={{color:C.body}}>Summary: </strong>{m.summary}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+
+          <div style={{ marginTop:24 }}>
+            <div style={{ fontSize:11, letterSpacing:2, textTransform:"uppercase", color:C.gold, fontWeight:600, marginBottom:12 }}>Consensus Summary</div>
+            <ScrollTable>
+              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
+                <thead><tr>{["Method","Result","Weight / Notes"].map(h=><th key={h} style={{textAlign:"left",padding:"10px 14px",fontSize:10,letterSpacing:2,textTransform:"uppercase",color:C.muted,borderBottom:"2px solid "+C.bgSubtle,fontWeight:600,background:"#faf8f4"}}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {consensus.map(r=>(
+                    <tr key={r.method} style={{ background:r.final?C.goldLight:r.highlight?C.bgSubtle:"transparent" }}>
+                      <td style={{padding:"12px 14px",borderBottom:"1px solid "+C.bgSubtle,color:r.final?C.gold:r.highlight?C.navy:C.sub,fontWeight:r.highlight?700:400}}>{r.method}</td>
+                      <td style={{padding:"12px 14px",borderBottom:"1px solid "+C.bgSubtle,fontFamily:r.highlight?"'Playfair Display',serif":"inherit",fontSize:r.highlight?16:13,color:r.final?C.gold:r.highlight?C.navy:C.sub,fontWeight:r.highlight?700:400}}>{r.result}</td>
+                      <td style={{padding:"12px 14px",borderBottom:"1px solid "+C.bgSubtle,color:C.muted,fontSize:12}}>{r.weight}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </ScrollTable>
+          </div>
+
+          <div style={{ marginTop:16, padding:"14px 18px", background:C.goldLight, border:"1px solid "+C.goldBorder, borderRadius:10, fontSize:13, color:"#5a420a", lineHeight:1.75 }}>
+            <strong>Why $200,000:</strong> Mid-point of the honest consensus range ($150K–$250K). Above the revenue multiple floor. Consistent with corrected risk factor and scorecard results. Reflects what Harmoniq actually is today — a strong idea with a working prototype and no commercial infrastructure yet built. At $200K pre-money, $75,000 purchases <strong>27.3% equity</strong> — normal and appropriate for pre-seed hardware at this stage.
+          </div>
+        </Section>
+      );
+    }
+
+
+    // ─── LOAN VIEW ─────────────────────────────────────────────────────────────────
+    function LoanView() {
+  const [scenario, setScenario] = useState("base");
+  const sc = SCENARIOS[scenario];
+
+  const yr1Units = sc.yr1, yr2Units = sc.yr2, yr3Units = sc.yr3;
+  const moUnits  = sc.yr1 > 0 ? [Math.round(yr1Units/12*0.5),Math.round(yr1Units/12*0.7),Math.round(yr1Units/12*0.85),Math.round(yr1Units/12*0.95),Math.round(yr1Units/12),Math.round(yr1Units/12*1.05),Math.round(yr1Units/12*1.1),Math.round(yr1Units/12*1.15),Math.round(yr1Units/12*1.2),Math.round(yr1Units/12*1.25),Math.round(yr1Units/12*1.3),Math.round(yr1Units/12*1.35)] : Array(12).fill(4);
+
+  const cumGP   = moUnits.reduce((acc, u, i) => { acc.push((acc[i-1]||0) + u * BLEND_GP); return acc; }, []);
+  const beMonth = cumGP.findIndex(g => g >= accruedBal);
+  const unitsNeeded = Math.ceil(monthlyPmt / BLEND_GP);
+
+  const yearRows = [
+    { label: "Year 1 — Grace Period",         units: yr1Units, note: "No payments due",                  rowBg: C.goldLight  },
+    { label: "Year 2 — Repayment begins",     units: yr2Units, note: `${fmt$(monthlyPmt)}/mo from Mo. 13`, rowBg: C.positiveBg },
+    { label: "Year 3 — Repayment continues *",units: yr3Units, note: "Loan retired by Month 36",          rowBg: C.positiveBg },
+  ];
+
+  return (
+    <>
+      {/* Grace period callout */}
+      <div style={{ background: C.goldLight, borderBottom: `2px solid ${C.goldBorder}`, padding: "26px 36px" }}>
+        <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", alignItems: "flex-start", gap: 20, flexWrap: "wrap" }}>
+          <div style={{ background: C.gold, borderRadius: 10, padding: "14px 18px", textAlign: "center", minWidth: 110, flexShrink: 0 }}>
+            <div style={{ fontFamily: "'Playfair Display',serif", color: "#fff", fontSize: 26, fontWeight: 700 }}>Yr 1</div>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.85)", letterSpacing: 2, textTransform: "uppercase", marginTop: 4, fontWeight: 600 }}>Grace Period</div>
+          </div>
+          <div>
+            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 19, color: "#3d2c06", fontWeight: 700, marginBottom: 8 }}>
+              No payments required in Year 1 — Months 1 through 12
+            </div>
+            <p style={{ fontSize: 13, color: "#5a420a", lineHeight: 1.8 }}>
+              The investor receives <strong>zero payments during the first 12 months</strong>. This grace period allows Sound Frame to deploy capital fully toward product development without the pressure of immediate debt service. Interest accrues on the {fmt$(AMOUNT)} principal during this period, bringing the balance to <strong>{fmt$(accruedBal)}</strong>. Repayment of <strong>{fmt$(monthlyPmt)}/month</strong> begins Month 13 and continues for 24 months.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Exec summary */}
+      <Section>
+        <Eyebrow>Executive Summary</Eyebrow>
+        <H2>The Opportunity</H2>
+        <Card>
+          <p style={{ fontSize: 14, lineHeight: 1.95, color: C.sub }}>
+            Sound Frame is a premium, TV-integrated speaker system built into a custom decorative frame. A working prototype has been completed. This <strong style={{ color: C.navy }}>{fmt$(AMOUNT)} loan</strong> funds the bridge to production: CAD engineering, cabinet maker samples, and IP protection. <strong style={{ color: C.navy }}>No payments are required in Year 1</strong>, allowing full focus on development and market entry. Repayment begins Month 13 across 24 months at 8% annual interest.
+          </p>
+          <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
+            <div style={{ background: C.goldLight, border: `1px solid ${C.goldBorder}`, borderRadius: 8, padding: "10px 16px", fontSize: 13, color: "#5a420a" }}><strong>Months 1–12:</strong> Grace period — $0 payments, capital deployed</div>
+            <div style={{ background: C.positiveBg, border: `1px solid ${C.positiveBdr}`, borderRadius: 8, padding: "10px 16px", fontSize: 13, color: C.positive }}><strong>Months 13–36:</strong> {fmt$(monthlyPmt)}/mo fixed repayment</div>
+          </div>
+        </Card>
+      </Section>
+
+      <PricingTiers />
+      <MarketValidation />
+      <BuildToOrder />
+
+      {/* Loan terms */}
+      <Section>
+        <Eyebrow>Loan Structure</Eyebrow>
+        <H2>Terms & Repayment Schedule</H2>
+        <div style={{ display: "flex", marginBottom: 28, borderRadius: 12, overflow: "hidden", border: `1px solid ${C.border}` }}>
+          <div style={{ flex: "0 0 33%", background: C.goldLight, padding: "20px 22px", borderRight: `1px solid ${C.goldBorder}` }}>
+            <div style={{ fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: C.gold, fontWeight: 600, marginBottom: 8 }}>Grace Period</div>
+            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, color: "#92400e", fontWeight: 700, marginBottom: 6 }}>Months 1–12</div>
+            <div style={{ fontSize: 13, color: "#78350f", lineHeight: 1.7 }}><strong>$0 payments due.</strong><br/>Interest accrues → balance grows to {fmt$(accruedBal)} by Month 12.</div>
+          </div>
+          <div style={{ flex: 1, background: C.positiveBg, padding: "20px 22px" }}>
+            <div style={{ fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: C.positive, fontWeight: 600, marginBottom: 8 }}>Repayment Period</div>
+            <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, color: C.positive, fontWeight: 700, marginBottom: 6 }}>Months 13–36</div>
+            <div style={{ fontSize: 13, color: C.positive, lineHeight: 1.7 }}><strong>{fmt$(monthlyPmt)}/month</strong> for 24 months on accrued balance of {fmt$(accruedBal)}. Fully retired by Month 36.</div>
+          </div>
+        </div>
+        <MetricGrid items={[
+          { lbl: "Original Loan",          val: fmt$(AMOUNT) },
+          { lbl: "Year 1 Payments",        val: "$0",             highlight: "gold" },
+          { lbl: "Interest During Grace",  val: fmt$(graceInt) },
+          { lbl: "Balance at Month 13",    val: fmt$(accruedBal) },
+          { lbl: "Repayment Period",       val: "24 Months" },
+          { lbl: "Monthly Payment (Yr 2+)",val: fmt$(monthlyPmt) },
+          { lbl: "Interest Rate",          val: "8.0% p.a." },
+          { lbl: "Total Interest",         val: fmt$(totalInt) },
+          { lbl: "Total Repaid",           val: fmt$(monthlyPmt * repayMonths) },
+        ]} />
+        <div style={{ color: C.muted, fontSize: 12, lineHeight: 1.65, marginTop: 12 }}>
+          8% p.a. interest compounds monthly during grace. No payments are collected Months 1–12. First payment of {fmt$(monthlyPmt)} is due Month 13. Rate subject to negotiation.
+        </div>
+      </Section>
+
+      {/* Use of funds */}
+      <Section>
+        <Eyebrow>Section A</Eyebrow>
+        <H2>Use of Funds — {fmt$(AMOUNT)}</H2>
+        <FundsTable />
+      </Section>
+
+      {/* Assumptions */}
+      <Section>
+        <Eyebrow>Section B</Eyebrow>
+        <H2>Financial Assumptions</H2>
+        <AssumptionsGrid />
+      </Section>
+
+      {/* Revenue projections */}
+      <Section>
+        <Eyebrow>Section C</Eyebrow>
+        <H2>Revenue Projections — 3 Years</H2>
+        <ScenarioTabs value={scenario} onChange={setScenario} />
+        <ScrollTable>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr>{["Period","Units","Gross Revenue","COGS","Gross Profit","GP Margin","Loan Status"].map(h => <th key={h} style={{ textAlign:"left",padding:"10px 14px",fontSize:10,letterSpacing:2,textTransform:"uppercase",color:C.muted,borderBottom:`2px solid ${C.bgSubtle}`,fontWeight:600,background:"#faf8f4" }}>{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {yearRows.map(r => {
+                const rev=r.units*BLEND_REV, cogs=r.units*COGS, gp=r.units*BLEND_GP;
+                return (
+                  <tr key={r.label} style={{ background: r.rowBg }}>
+                    <td style={{ padding:"13px 14px",color:C.body,fontWeight:600,borderBottom:`1px solid ${C.bgSubtle}` }}>{r.label}</td>
+                    <td style={{ padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`,fontVariantNumeric:"tabular-nums",fontWeight:500 }}>{r.units}</td>
+                    <td style={{ padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}` }}><span style={{ color:C.navy,fontWeight:600 }}>{fmt$(rev)}</span></td>
+                    <td style={{ padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`,color:C.muted }}>{fmt$(cogs)}</td>
+                    <td style={{ padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}` }}><span style={{ color:C.positive,fontWeight:600 }}>{fmt$(gp)}</span></td>
+                    <td style={{ padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`,color:C.sub }}>{Math.round(gp/rev*100)}%</td>
+                    <td style={{ padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`,fontSize:12,color:r.rowBg===C.goldLight?"#92400e":C.positive,fontWeight:500 }}>{r.note}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </ScrollTable>
+        <div style={{ color:C.muted,fontSize:12,lineHeight:1.65,marginTop:12 }}>* Year 3 applies {sc.label.toLowerCase()} growth assumptions. Estimates only — not a guarantee of performance.</div>
+      </Section>
+
+      {/* Repayment feasibility */}
+      <Section>
+        <Eyebrow>Section D</Eyebrow>
+        <H2>Repayment Feasibility — Year 2 Monthly Detail</H2>
+        <Notice type="gold">
+          <strong>Year 1 Recap: No payments made.</strong> Interest accrued on the {fmt$(AMOUNT)} principal, bringing the outstanding balance to <strong>{fmt$(accruedBal)}</strong> at the start of Month 13. Monthly payments of <strong>{fmt$(monthlyPmt)}</strong> now begin over {repayMonths} months. Approximately <strong>{unitsNeeded} units/month</strong> of blended gross profit is required to cover each payment.{" "}
+          {beMonth >= 0
+            ? <>Under the <strong>{sc.label.toLowerCase()}</strong> scenario, cumulative Year 2 gross profit surpasses the accrued balance by <strong>Month {beMonth + 1}</strong>.</>
+            : <>Under this scenario, Year 2 gross profit alone does not fully cover the accrued balance — <strong>repayment relies on Year 3 revenue.</strong></>}
+        </Notice>
+        <ScrollTable style={{ marginTop: 16 }}>
+          <table style={{ width:"100%",borderCollapse:"collapse",fontSize:13 }}>
+            <thead>
+              <tr>{["Month","Units","Gross Profit","Loan Payment","Surplus / Gap","Cumulative GP"].map(h=><th key={h} style={{textAlign:"left",padding:"10px 14px",fontSize:10,letterSpacing:2,textTransform:"uppercase",color:C.muted,borderBottom:`2px solid ${C.bgSubtle}`,fontWeight:600,background:"#faf8f4"}}>{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {moUnits.map((units,i)=>{
+                const gp=units*BLEND_GP, surplus=gp-monthlyPmt, cum=cumGP[i];
+                return (
+                  <tr key={i} style={{ background: cum>=accruedBal ? C.positiveBg : "transparent" }}>
+                    <td style={{padding:"12px 14px",borderBottom:`1px solid ${C.bgSubtle}`,color:C.muted,fontWeight:500}}>Yr 2 · Mo {i+1}</td>
+                    <td style={{padding:"12px 14px",borderBottom:`1px solid ${C.bgSubtle}`,fontVariantNumeric:"tabular-nums",fontWeight:500}}>{units}</td>
+                    <td style={{padding:"12px 14px",borderBottom:`1px solid ${C.bgSubtle}`}}><span style={{color:C.positive,fontWeight:600}}>{fmt$(gp)}</span></td>
+                    <td style={{padding:"12px 14px",borderBottom:`1px solid ${C.bgSubtle}`}}><span style={{color:C.navy,fontWeight:600}}>{fmt$(monthlyPmt)}</span></td>
+                    <td style={{padding:"12px 14px",borderBottom:`1px solid ${C.bgSubtle}`}}><span style={{color:surplus>=0?C.positive:"#991b1b",fontWeight:600}}>{surplus>=0?"+":""}{fmt$(surplus)}</span></td>
+                    <td style={{padding:"12px 14px",borderBottom:`1px solid ${C.bgSubtle}`}}><span style={{color:cum>=accruedBal?C.positive:C.sub,fontWeight:cum>=accruedBal?600:400}}>{fmt$(cum)}{cum>=accruedBal?" ✓":""}</span></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </ScrollTable>
+        <div style={{ color:C.muted,fontSize:12,lineHeight:1.65,marginTop:12 }}>Rows highlighted once cumulative gross profit surpasses accrued balance of {fmt$(accruedBal)}. Table reflects gross profit only — operating expenses reduce actual repayment capacity.</div>
+      </Section>
+
+      {/* Risks */}
+      <Section>
+        <Eyebrow>Section E</Eyebrow>
+        <H2>Key Risks & Material Disclosures</H2>
+        <RiskList items={[
+          { title:"COGS Not Yet Validated",body:"Unit cost of $1,400 (~40% of retail) is an unconfirmed estimate. Actual cabinet maker quotes could shift this significantly, compressing gross margin and extending the repayment timeline." },
+          { title:"Interest Accrues During Grace Period",body:`No payments are made in Year 1, but interest is not forgiven. Interest accrues monthly on the full ${fmt$(AMOUNT)} principal, increasing the outstanding balance to ${fmt$(accruedBal)} before the first payment. This is factored into the repayment model above.` },
+          { title:"Pre-Revenue Company",body:"Sound Frame has no revenue history. All projections are forward-looking estimates based on market assumptions, not operational performance." },
+          { title:"Price Point Unvalidated at Market",body:"A $3,500 retail price places the product in premium AV territory. Customer willingness to pay at this price point has not been tested. Discounting to drive adoption would materially impact the repayment model." },
+          { title:"IP Filing Is Not IP Protection",body:"A provisional patent secures a 12-month priority window — it is not a granted patent. Utility patent prosecution is multi-year, costly ($10K–$30K+ additional), and not guaranteed to result in issuance." },
+          { title:"Repayment Analysis Uses Gross Profit Only",body:"The month-by-month table reflects gross profit, not free cash flow. Operating expenses — shipping, returns, platform fees, marketing, owner draw — are not modeled and will reduce repayment capacity." },
+          { title:"Manufacturing Partner Not Secured",body:"Cabinet maker relationships have not been established. Lead times, minimum order quantities, and production costs are currently unknown and are material variables to the business model." },
+        ]} />
+      </Section>
+    </>
+  );
+}
+
+    // ─── EQUITY VIEW ───────────────────────────────────────────────────────────────
+    // ─── EQUITY VIEW ─────────────────────────────────────────────────────────────────
+    function EquityView() {
+  const [equityIdx, setEquityIdx] = useState(1);
+  const [scenario,  setScenario]  = useState("base");
+  const [exitYr,    setExitYr]    = useState(3);
+
+  const eq        = EQUITY_OPTIONS[equityIdx];
+  const postMoney = eq.preMoney + AMOUNT;
+  const sc        = SCENARIOS[scenario];
+
+  const years = [
+    { label:"Year 1", units:sc.yr1 },
+    { label:"Year 2", units:sc.yr2 },
+    { label:"Year 3", units:sc.yr3 },
+  ].map(y => {
+    const rev=y.units*BLEND_REV, gp=y.units*BLEND_GP, opExp=rev*OP_EXP_RATE;
+    return { ...y, rev, cogs:y.units*COGS, gp, opExp, netProfit:gp-opExp };
+  });
+
+  const exitYearData  = years[exitYr-1];
+  const exitScenarios = EXIT_MULTIPLES.map(mult => {
+    const companyVal=exitYearData.rev*mult, investorVal=companyVal*eq.pct;
+    return { mult, companyVal, investorVal, moic:investorVal/AMOUNT };
+  });
+
+  return (
+    <>
+      {/* Equity callout */}
+      <div style={{ background: C.goldLight, borderBottom: `2px solid ${C.goldBorder}`, padding: "26px 36px" }}>
+        <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", alignItems: "flex-start", gap: 20, flexWrap: "wrap" }}>
+          <div style={{ background: C.gold, borderRadius: 10, padding: "14px 18px", textAlign: "center", minWidth: 110, flexShrink: 0 }}>
+            <div style={{ fontFamily: "'Playfair Display',serif", color: "#fff", fontSize: 26, fontWeight: 700 }}>Equity</div>
+            <div style={{ fontSize: 10, color:"rgba(255,255,255,0.85)", letterSpacing:2, textTransform:"uppercase", marginTop:4, fontWeight:600 }}>Ownership</div>
+          </div>
+          <div>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:19, color:"#3d2c06", fontWeight:700, marginBottom:8 }}>
+              {fmt$(AMOUNT)} for an ownership stake — no payments, no interest, no repayment schedule
+            </div>
+            <p style={{ fontSize:13, color:"#5a420a", lineHeight:1.8 }}>
+              This is an <strong>equity investment</strong>, not a loan. The investor receives a percentage of Sound Frame in exchange for {fmt$(AMOUNT)}. <strong>There are no monthly payments, no fixed interest, and no repayment deadline.</strong> Return is realized through <strong>profit distributions</strong> and/or an <strong>exit event</strong> — acquisition, buyout, or future funding round.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Exec summary */}
+      <Section>
+        <Eyebrow>Executive Summary</Eyebrow>
+        <H2>The Opportunity</H2>
+        <Card>
+          <p style={{ fontSize:14, lineHeight:1.95, color:C.sub }}>
+            Sound Frame is a premium, TV-integrated speaker system built into a custom decorative frame. A working prototype has been completed. This <strong style={{color:C.navy}}>{fmt$(AMOUNT)} equity investment</strong> funds the bridge to production: CAD engineering, cabinet maker samples, and IP protection. The investor receives an ownership stake with upside tied directly to company growth and exit value.
+          </p>
+          <div style={{ display:"flex", gap:10, marginTop:16, flexWrap:"wrap" }}>
+            {["No monthly payments","No interest accruing","No repayment deadline","Upside tied to growth"].map(t=>(
+              <div key={t} style={{ display:"flex",gap:8,alignItems:"center",background:C.positiveBg,border:`1px solid ${C.positiveBdr}`,borderRadius:8,padding:"10px 14px" }}>
+                <span style={{ color:C.positive,fontWeight:700 }}>✓</span>
+                <span style={{ fontSize:13,color:C.positive,fontWeight:500 }}>{t}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </Section>
+
+      <PricingTiers />
+      <MarketValidation />
+      <BuildToOrder />
+      <ValuationMethodology />
+
+      {/* Equity structure */}
+      <Section>
+        <Eyebrow>Equity Structure</Eyebrow>
+        <H2>Ownership & Valuation</H2>
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:11,color:C.muted,marginBottom:10,fontWeight:600,letterSpacing:1,textTransform:"uppercase" }}>Equity Stake Being Offered</div>
+          <div style={{ display:"flex",gap:10,flexWrap:"wrap" }}>
+            {EQUITY_OPTIONS.map((opt,i)=><PillBtn key={i} active={equityIdx===i} onClick={()=>setEquityIdx(i)}>{opt.label}</PillBtn>)}
+          </div>
+        </div>
+        <Card style={{ padding:0,overflow:"hidden",marginBottom:16 }}>
+          <div style={{ display:"flex" }}>
+            <div style={{ flex:`0 0 ${eq.pct*100}%`,background:C.navy,padding:"20px 22px",minWidth:90 }}>
+              <div style={{ fontFamily:"'Playfair Display',serif",fontSize:30,color:"#fff",fontWeight:700 }}>{eq.label}</div>
+              <div style={{ fontSize:10,color:"rgba(255,255,255,0.6)",marginTop:4,letterSpacing:1.5,textTransform:"uppercase",fontWeight:600 }}>Investor</div>
+            </div>
+            <div style={{ flex:1,background:C.bgSubtle,padding:"20px 22px" }}>
+              <div style={{ fontFamily:"'Playfair Display',serif",fontSize:30,color:C.navy,fontWeight:700 }}>{(100-eq.pct*100).toFixed(0)}%</div>
+              <div style={{ fontSize:10,color:C.muted,marginTop:4,letterSpacing:1.5,textTransform:"uppercase",fontWeight:600 }}>Founder Retained</div>
+            </div>
+          </div>
+        </Card>
+        <MetricGrid items={[
+          { lbl:"Investment Amount",   val:fmt$(AMOUNT) },
+          { lbl:"Equity Stake",        val:eq.label },
+          { lbl:"Pre-Money Valuation", val:fmt$(eq.preMoney) },
+          { lbl:"Post-Money Valuation",val:fmt$(postMoney) },
+          { lbl:"Founder Retained",    val:(100-eq.pct*100).toFixed(0)+"%" },
+          { lbl:"Monthly Payments",    val:"None", highlight:"pos" },
+          { lbl:"Fixed Interest",      val:"None", highlight:"pos" },
+          { lbl:"Return Mechanism",    val:"Exit + Profits" },
+        ]} />
+        <div style={{ color:C.muted,fontSize:12,lineHeight:1.65,marginTop:12 }}>Pre-money valuation is a negotiated figure. Post-money = pre-money + {fmt$(AMOUNT)}. Equity % and valuation subject to negotiation and due diligence.</div>
+      </Section>
+
+      {/* Use of funds */}
+      <Section>
+        <Eyebrow>Section A</Eyebrow>
+        <H2>Use of Funds — {fmt$(AMOUNT)}</H2>
+        <FundsTable />
+      </Section>
+
+      {/* Projections */}
+      <Section>
+        <Eyebrow>Section B</Eyebrow>
+        <H2>Financial Projections — 3 Years</H2>
+        <ScenarioTabs value={scenario} onChange={setScenario} />
+        <ScrollTable>
+          <table style={{ width:"100%",borderCollapse:"collapse",fontSize:13 }}>
+            <thead>
+              <tr>{["Year","Units","Gross Revenue","Gross Profit","Est. Op. Expenses","Est. Net Profit","GP Margin"].map(h=><th key={h} style={{textAlign:"left",padding:"10px 14px",fontSize:10,letterSpacing:2,textTransform:"uppercase",color:C.muted,borderBottom:`2px solid ${C.bgSubtle}`,fontWeight:600,background:"#faf8f4"}}>{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {years.map(y=>(
+                <tr key={y.label}>
+                  <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`,color:C.body,fontWeight:600}}>{y.label}</td>
+                  <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`,fontVariantNumeric:"tabular-nums",fontWeight:500}}>{y.units}</td>
+                  <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`}}><span style={{color:C.navy,fontWeight:600}}>{fmt$(y.rev)}</span></td>
+                  <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`}}><span style={{color:C.positive,fontWeight:500}}>{fmt$(y.gp)}</span></td>
+                  <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`,color:C.muted}}>{fmt$(y.opExp)}</td>
+                  <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`}}><span style={{color:y.netProfit>=0?C.positive:"#991b1b",fontWeight:600}}>{y.netProfit>=0?"":"–"}{fmt$(Math.abs(y.netProfit))}</span></td>
+                  <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`,color:C.sub}}>{Math.round(y.gp/y.rev*100)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </ScrollTable>
+        <div style={{color:C.muted,fontSize:12,lineHeight:1.65,marginTop:12}}>Operating expenses estimated at 18% of revenue. Net profit is pre-tax and does not reflect founder compensation.</div>
+      </Section>
+
+      {/* Exit scenarios */}
+      <Section>
+        <Eyebrow>Section C</Eyebrow>
+        <H2>Investor Return — Exit Scenarios</H2>
+        <p style={{fontSize:13,color:C.muted,lineHeight:1.75,marginBottom:20}}>
+          An equity investor's return is realized at an exit event. Exit value is typically a multiple of annual revenue. The table models what the investor's <strong style={{color:C.navy}}>{eq.label} stake</strong> is worth across revenue multiples, based on the selected exit year's projected revenue.
+        </p>
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:11,color:C.muted,marginBottom:10,fontWeight:600,letterSpacing:1,textTransform:"uppercase"}}>Valuation Based on Revenue of</div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            {[1,2,3].map(yr=><PillBtn key={yr} active={exitYr===yr} onClick={()=>setExitYr(yr)}>Year {yr} — {fmt$(years[yr-1].rev)}</PillBtn>)}
+          </div>
+        </div>
+        <ScrollTable style={{ marginBottom: 16 }}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+            <thead>
+              <tr>{["Exit Multiple","Yr "+exitYr+" Revenue","Implied Co. Value","Investor's "+eq.label+" Value","MOIC","Net Return"].map(h=><th key={h} style={{textAlign:"left",padding:"10px 14px",fontSize:10,letterSpacing:2,textTransform:"uppercase",color:C.muted,borderBottom:`2px solid ${C.bgSubtle}`,fontWeight:600,background:"#faf8f4"}}>{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {exitScenarios.map(e=>{
+                const moicBg  = e.moic>=4?"#e0f0e8":e.moic>=2?C.goldLight:C.bgSubtle;
+                const moicClr = e.moic>=4?"#1a4a2a":e.moic>=2?"#5a420a":C.sub;
+                const moicBdr = e.moic>=4?"#9fd0b0":e.moic>=2?C.goldBorder:C.border;
+                return (
+                  <tr key={e.mult}>
+                    <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`,color:C.body,fontWeight:600}}>{e.mult}× Revenue</td>
+                    <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`,color:C.muted,fontVariantNumeric:"tabular-nums"}}>{fmt$(exitYearData.rev)}</td>
+                    <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`}}><span style={{color:C.navy,fontWeight:600}}>{fmt$(e.companyVal)}</span></td>
+                    <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`}}><span style={{color:C.positive,fontWeight:700,fontSize:14}}>{fmt$(e.investorVal)}</span></td>
+                    <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`}}><span style={{background:moicBg,color:moicClr,border:`1px solid ${moicBdr}`,padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700}}>{fmtX(e.moic)}</span></td>
+                    <td style={{padding:"13px 14px",borderBottom:`1px solid ${C.bgSubtle}`}}><span style={{color:e.moic>=1?C.positive:"#991b1b",fontWeight:600}}>{e.moic>=1?"+":"–"}{fmt$(Math.abs(e.investorVal-AMOUNT))}</span></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </ScrollTable>
+        <Notice type="gold"><strong>How to read MOIC:</strong> Multiple on Invested Capital — how many times the investor gets their money back. A 4× MOIC on {fmt$(AMOUNT)} returns {fmt$(AMOUNT*4)}. Consumer hardware with strong IP typically trades at <strong>2–5× revenue</strong> at acquisition. A 6–8× multiple reflects premium positioning and strong traction.</Notice>
+      </Section>
+
+      {/* Profit distributions */}
+      <Section>
+        <Eyebrow>Section D</Eyebrow>
+        <H2>Profit Distribution Potential</H2>
+        <p style={{fontSize:13,color:C.muted,lineHeight:1.75,marginBottom:20}}>Equity holders may receive distributions from net profit in addition to an exit event. Below is the investor's proportional share of cumulative estimated net profit through Year {exitYr}, under each scenario.</p>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))",gap:12}}>
+          {Object.entries(SCENARIOS).map(([key,s])=>{
+            const cumNet=[s.yr1,s.yr2,s.yr3].slice(0,exitYr).map(u=>u*BLEND_GP-u*BLEND_REV*OP_EXP_RATE).reduce((a,b)=>a+b,0);
+            const share=cumNet*eq.pct;
+            return (
+              <Card key={key} style={{borderTop:`3px solid ${s.accent}`}}>
+                <div style={{fontSize:11,color:C.muted,marginBottom:8,fontWeight:600,textTransform:"uppercase",letterSpacing:1}}>{s.label}</div>
+                <div style={{fontFamily:"'Playfair Display',serif",fontSize:24,color:cumNet>=0?C.navy:"#991b1b",fontWeight:700}}>{cumNet>=0?fmt$(share):"Net loss period"}</div>
+                <div style={{color:C.muted,fontSize:12,lineHeight:1.65,marginTop:6}}>Investor's {eq.label} of {fmt$(Math.max(0,cumNet))} cumulative net profit · Yrs 1–{exitYr}</div>
+              </Card>
+            );
+          })}
+        </div>
+        <Notice type="warn"><strong>Important:</strong> Profit distributions are not guaranteed. They are subject to company cash flow, operating needs, and mutual agreement. These figures are modeled estimates, not committed distributions.</Notice>
+      </Section>
+
+      {/* Risks */}
+      <Section>
+        <Eyebrow>Section E</Eyebrow>
+        <H2>Key Risks & Material Disclosures</H2>
+        <RiskList items={[
+          {title:"Equity Carries No Guaranteed Return",body:"Unlike a loan, this investment has no fixed repayment date, interest rate, or guaranteed return. The investor's return depends entirely on company performance and a future exit event or profit distributions — neither of which is guaranteed."},
+          {title:"Pre-Revenue Company",body:"Sound Frame has no revenue history. All projections are forward-looking estimates based on market assumptions, not operational performance."},
+          {title:"Valuation Is Negotiated, Not Independently Verified",body:"The pre-money valuation reflects a negotiated figure, not a third-party appraisal. Investors are encouraged to perform independent due diligence on the valuation methodology."},
+          {title:"COGS Not Yet Validated",body:"Unit cost of $1,400 (~40% of retail) is an unconfirmed estimate. Actual cabinet maker quotes could shift this significantly, compressing gross margin and affecting net profit projections."},
+          {title:"Price Point Unvalidated at Market",body:"A $3,500 retail price has not been tested with end consumers. Discounting to drive adoption would reduce revenue and net profit, directly impacting investor return projections."},
+          {title:"Exit Event Is Not Guaranteed",body:"There is no committed timeline or mechanism for an exit event. An acquisition or buyout depends on market conditions, company growth, and third-party interest — all outside the founders' full control."},
+          {title:"IP Filing Is Not IP Protection",body:"A provisional patent secures a 12-month priority window only. Utility patent prosecution is multi-year, costly, and not guaranteed to result in issuance."},
+          {title:"Manufacturing Partner Not Secured",body:"Cabinet maker relationships have not been established. Lead times, minimum order quantities, and production costs are unknown and material variables to the business model."},
+        ]} />
+      </Section>
+    </>
+  );
+}
+
+    // ─── ROOT ─────────────────────────────────────────────────────────────────────
+export default function App() {
+  const [tab, setTab] = useState("loan");
+
+  return (
+    <div style={{ fontFamily:"'Inter',sans-serif", background:C.bg, minHeight:"100vh" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Inter:wght@300;400;500;600&display=swap');*{box-sizing:border-box;margin:0;padding:0;}`}</style>
+
+      {/* HEADER */}
+      <div style={{ background:C.navy, padding:"40px 24px 0", textAlign:"center", boxSizing:"border-box", width:"100%", overflow:"hidden" }}>
+        <div style={{ maxWidth:900, margin:"0 auto" }}>
+          <div style={{ fontSize:10,letterSpacing:5,textTransform:"uppercase",color:"#8aafc8",marginBottom:12,fontWeight:600 }}>
+            Confidential · Investor Proforma · {tab==="equity"?"Equity Investment":"Loan & Repayment"}
+          </div>
+          <h1 style={{ fontFamily:"'Playfair Display',serif",fontSize:"clamp(36px,6vw,52px)",color:"#fff",fontWeight:700,letterSpacing:"-1px",marginBottom:4 }}>Sound Frame</h1>
+          <p style={{ color:"#8aafc8",fontSize:14,marginBottom:32 }}>
+            TV-Integrated Speaker Frame &nbsp;·&nbsp; {new Date().toLocaleDateString("en-US",{month:"long",year:"numeric"})}
+          </p>
+
+          {/* TAB BAR */}
+          <div style={{ display:"flex",width:"100%",background:"rgba(0,0,0,0.25)",borderRadius:"12px 12px 0 0",padding:"6px 6px 0",gap:4 }}>
+            {[
+              { key:"loan",   label:"Loan & Repayment",  sub:"Fixed term · Grace period · 8% p.a." },
+              { key:"equity", label:"Equity Investment", sub:"Ownership stake · No repayment" },
+            ].map(t=>(
+              <button key={t.key} onClick={()=>setTab(t.key)}
+                style={{
+                  background: tab===t.key ? C.bg : "transparent",
+                  color:      tab===t.key ? C.navy : "rgba(255,255,255,0.55)",
+                  border:     "none",
+                  borderRadius: "8px 8px 0 0",
+                  padding:    "12px 16px",
+                  cursor:     "pointer",
+                  fontFamily: "inherit",
+                  textAlign:  "center",
+                  transition: "all .2s",
+                  flex:       1,
+                }}>
+                <div style={{ fontWeight:600, fontSize:14 }}>{t.label}</div>
+                <div style={{ fontSize:11, opacity:0.65, marginTop:3, fontWeight:400 }}>{t.sub}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* KEY STATS BAR */}
+      <div style={{ background:C.bgSubtle, borderBottom:`1px solid ${C.border}`, padding:"14px 24px" }}>
+        <div style={{ maxWidth:900, margin:"0 auto" }}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(130px, 1fr))", gap:10 }}>
+            {(tab==="loan" ? [
+              { lbl:"Amount",         val:fmt$(AMOUNT),           clr:C.navy },
+              { lbl:"Structure",      val:"36-Month Loan",        clr:C.navy },
+              { lbl:"Year 1",         val:"No Payments",          clr:C.gold },
+              { lbl:"Repayment Starts",val:"Month 13",            clr:C.navy },
+              { lbl:"Monthly (Yr 2+)",val:fmt$(monthlyPmt),       clr:C.navy },
+              { lbl:"Rate",           val:"8% p.a.",              clr:C.navy },
+            ] : [
+              { lbl:"Amount",         val:fmt$(AMOUNT),           clr:C.navy },
+              { lbl:"Structure",      val:"Equity Stake",         clr:C.navy },
+              { lbl:"Monthly Payments",val:"None",                clr:C.positive },
+              { lbl:"Fixed Interest", val:"None",                 clr:C.positive },
+              { lbl:"Repayment",      val:"Not Required",         clr:C.positive },
+              { lbl:"Return Path",    val:"Exit + Profits",       clr:C.navy },
+            ]).map(s => (
+              <div key={s.lbl} style={{ background:C.bgCard, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px" }}>
+                <div style={{ fontSize:10,letterSpacing:1.5,textTransform:"uppercase",color:C.muted,fontWeight:600,marginBottom:4,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{s.lbl}</div>
+                <div style={{ fontFamily:"'Playfair Display',serif",fontSize:16,color:s.clr,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{s.val}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* TAB CONTENT */}
+      {tab === "loan"   ? <LoanView />   : <EquityView />}
+
+      {/* FOOTER */}
+      <div style={{ background:C.navy, padding:"40px 36px", textAlign:"center" }}>
+        <div style={{ width:40,height:2,background:"rgba(255,255,255,0.15)",margin:"0 auto 20px" }} />
+        <p style={{ fontSize:11,color:"#8aafc8",lineHeight:2,maxWidth:600,margin:"0 auto" }}>
+          This proforma is provided for investor discussion purposes only. It does not constitute a guarantee of financial performance, a securities offering, or legal or financial advice. All projections are estimates based on stated assumptions and do not represent a binding agreement. Recipients are encouraged to conduct independent due diligence and consult qualified legal and financial advisors.
+        </p>
+        <p style={{ fontSize:11,color:"#4a6a8a",marginTop:16 }}>Sound Frame · {new Date().getFullYear()} · Confidential</p>
+      </div>
+    </div>
+  );
+}
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App />);
+  </script>
+</body>
+</html>
