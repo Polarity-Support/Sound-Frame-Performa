@@ -18,7 +18,7 @@
 <body>
   <div id="root"></div>
 
-  <script type="text/babel">
+  <script type="text/babel" data-presets="react" data-plugins="transform-class-properties">
     const { useState, useEffect, useRef } = React;
 
     // ─── Shared Constants ────────────────────────────────────────────────────────
@@ -1037,7 +1037,7 @@
 }
 
     // ─── ROOT ─────────────────────────────────────────────────────────────────────
-export default function App() {
+function App() {
   const [tab, setTab] = useState("loan");
 
   return (
